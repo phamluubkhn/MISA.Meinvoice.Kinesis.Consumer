@@ -1,0 +1,10 @@
+{
+  "CustomerConsumerConfig": "customer.properties,customer_jars",
+  "BankAccountConsumerConfig": "customer_bank_account.properties,bankaccount_jars",
+  "CompanyConsumerConfig": "company.properties,company_jars",
+  "TransactionConsumerConfig": "transaction.properties,transaction_jars",
+  "MysqlDB": "server=3.1.42.67;database=tcb_meinvoice;port=3306;user=root;password=12345678@",
+  "WorkProcessInterval": "10",
+  "IsWorkerHostedService": "true"
+
+}

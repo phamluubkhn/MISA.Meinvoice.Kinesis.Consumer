@@ -1,0 +1,49 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 16
+VisualStudioVersion = 16.0.32126.315
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.ClientLibrary", "MISA.Meinvoice.Kinesis.ClientLibrary\MISA.Meinvoice.Kinesis.ClientLibrary\MISA.Meinvoice.Kinesis.ClientLibrary.csproj", "{ED2EED01-217B-4660-A91A-27F9A396647B}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.Consumer", "MISA.Meinvoice.Kinesis.Customer\MISA.Meinvoice.Kinesis.Consumer.csproj", "{8445E191-46BD-484E-9DEF-B85484B046FD}"
+EndProject
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.Consumer.Library", "MISA.Meinvoice.Kinesis.Consumer.Library\MISA.Meinvoice.Kinesis.Consumer.Library.csproj", "{2B172D54-7DF9-4EB4-9D2D-D04150401409}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MISA.Meinvoice.Kinesis.ConsumerBootstrap", "MISA.Meinvoice.Kinesis.ConsumerBootstrap\MISA.Meinvoice.Kinesis.ConsumerBootstrap.csproj", "{4DC946F6-37A6-4809-95A1-CE6A973BAE57}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MISA.Meinvoice.Kinesis.DataErrorWorker", "MISA.Meinvoice.Kinesis.DataErrorWorker\MISA.Meinvoice.Kinesis.DataErrorWorker.csproj", "{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{ED2EED01-217B-4660-A91A-27F9A396647B}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{ED2EED01-217B-4660-A91A-27F9A396647B}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{ED2EED01-217B-4660-A91A-27F9A396647B}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{ED2EED01-217B-4660-A91A-27F9A396647B}.Release|Any CPU.Build.0 = Release|Any CPU
+		{8445E191-46BD-484E-9DEF-B85484B046FD}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{8445E191-46BD-484E-9DEF-B85484B046FD}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{8445E191-46BD-484E-9DEF-B85484B046FD}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{8445E191-46BD-484E-9DEF-B85484B046FD}.Release|Any CPU.Build.0 = Release|Any CPU
+		{2B172D54-7DF9-4EB4-9D2D-D04150401409}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{2B172D54-7DF9-4EB4-9D2D-D04150401409}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{2B172D54-7DF9-4EB4-9D2D-D04150401409}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{2B172D54-7DF9-4EB4-9D2D-D04150401409}.Release|Any CPU.Build.0 = Release|Any CPU
+		{4DC946F6-37A6-4809-95A1-CE6A973BAE57}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{4DC946F6-37A6-4809-95A1-CE6A973BAE57}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{4DC946F6-37A6-4809-95A1-CE6A973BAE57}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{4DC946F6-37A6-4809-95A1-CE6A973BAE57}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ExtensibilityGlobals) = postSolution
+		SolutionGuid = {832D2E66-6CEC-4FE3-90FE-0DFC3A7FD44C}
+	EndGlobalSection
+EndGlobal

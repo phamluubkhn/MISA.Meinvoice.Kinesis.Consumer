@@ -1,0 +1,4 @@
+{
+  "MysqlDB": "server=3.1.42.67;database=tcb_meinvoice;port=3306;user=root;password=12345678@",
+  "WorkProcessInterval": "10"
+}
