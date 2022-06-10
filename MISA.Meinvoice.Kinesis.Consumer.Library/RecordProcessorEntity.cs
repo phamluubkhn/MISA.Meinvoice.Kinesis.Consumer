@@ -52,6 +52,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public const string CustomerBankAccount = "customer_bank_account";
         public const string Company = "company";
         public const string Transaction = "transaction";
+        public const string Pl01GTGT = "Pl01gtgt";
     }
 
     public class SyncDataErrorLevel
@@ -60,6 +61,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public const int MysqlException = 2;
         public const int RecordException = 3;
         public const int StopConsumer = 4;
+        public const int BatchInsertException = 5;
     }
 
     public class KinesisStreamEvent

@@ -9,9 +9,9 @@ Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.Cons
 EndProject
 Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.Consumer.Library", "MISA.Meinvoice.Kinesis.Consumer.Library\MISA.Meinvoice.Kinesis.Consumer.Library.csproj", "{2B172D54-7DF9-4EB4-9D2D-D04150401409}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MISA.Meinvoice.Kinesis.ConsumerBootstrap", "MISA.Meinvoice.Kinesis.ConsumerBootstrap\MISA.Meinvoice.Kinesis.ConsumerBootstrap.csproj", "{4DC946F6-37A6-4809-95A1-CE6A973BAE57}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.ConsumerBootstrap", "MISA.Meinvoice.Kinesis.ConsumerBootstrap\MISA.Meinvoice.Kinesis.ConsumerBootstrap.csproj", "{4DC946F6-37A6-4809-95A1-CE6A973BAE57}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MISA.Meinvoice.Kinesis.DataErrorWorker", "MISA.Meinvoice.Kinesis.DataErrorWorker\MISA.Meinvoice.Kinesis.DataErrorWorker.csproj", "{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}"
+Project("{9A19103F-16F7-4668-BE54-9A1E7A4F7556}") = "MISA.Meinvoice.Kinesis.DataErrorWorker", "MISA.Meinvoice.Kinesis.DataErrorWorker\MISA.Meinvoice.Kinesis.DataErrorWorker.csproj", "{3A6B4ED6-84AD-45F5-9C79-5EF31FF4533E}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

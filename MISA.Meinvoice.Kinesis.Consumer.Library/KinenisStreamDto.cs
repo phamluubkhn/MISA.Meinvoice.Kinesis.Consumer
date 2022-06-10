@@ -30,6 +30,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         [KinesisDataField(KinesisDataFieldType.IntegerType)]
         public int? PRIORITY { get; set; }
+
+        public DateTime? DS_PARTITION_DATE { get; set; }
     }
 
     public class CUSTOMER_BANK_ACCOUNT
@@ -42,7 +44,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public string ACCOUNT_NUMBER { get; set; }
 
         public string CUSTOMER_CODE { get; set; }
-        public DateTime? DS_PARTITION_DATE { get; set; }
+        //public DateTime? DS_PARTITION_DATE { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string CATEGORY { get; set; }
@@ -52,6 +54,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         [KinesisDataField(KinesisDataFieldType.IntegerType)]
         public int STATUS { get; set; }
+
+        public DateTime? DS_PARTITION_DATE { get; set; }
     }
 
     public class COMPANY
@@ -59,7 +63,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string COMPANY_CODE { get; set; }
 
-        public DateTime? DS_PARTITION_DATE { get; set; }
+        //public DateTime? DS_PARTITION_DATE { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string EMAIL { get; set; }
@@ -70,6 +74,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         [KinesisDataField(KinesisDataFieldType.DatetimeType)]
         public DateTime? LST_UPDATE_DATE { get; set; }
+
+        public DateTime? DS_PARTITION_DATE { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string LEGAL_REPRESENT { get; set; }
@@ -86,6 +92,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string NAME_ADDRESS { get; set; }
         public string NAME_LEAD_COM { get; set; }
+
+        public string ADDRESS { get; set; }
+        public string NAME { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string STATUS { get; set; }
@@ -125,7 +134,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public string INV_NOTE { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.DatetimeType)]
-        public DateTime? TRANFER_DATE { get; set; }
+        public DateTime? TRANSFER_DATE { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string TRANS_NO { get; set; }
@@ -196,9 +205,119 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string ORIGIN_TRANS_REF { get; set; }
 
-        public DateTime DS_PARTITION_DATE { get; set; }
-        public DateTime? transfer_date { get; set; }
+        //public DateTime DS_PARTITION_DATE { get; set; }
+        //public DateTime? transfer_date { get; set; }
 
-        public string ID { get; set; }
+        //public string ID { get; set; }
+    }
+
+    public class Pl01gtgt
+    {
+
+
+
+        //        ds_partition_date DATE
+        //contract_number Số bút toán VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Số bút toán
+        /// </summary>
+        public string contract_number { get; set; }
+
+        //COMPANY Mã chi nhánh VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Mã chi nhánh
+        /// </summary>
+        public string COMPANY { get; set; }
+
+        //pl_category Mã PL NUMBER
+        /// <summary>
+        /// Mã PL
+        /// </summary>
+        public int? pl_category { get; set; }
+
+        //booking_date Ngày hạch toán DATE
+        /// <summary>
+        /// Ngày hạch toán
+        /// </summary>
+        public DateTime? booking_date { get; set; }
+
+        //amount Số tiền quy đổi NUMBER
+        /// <summary>
+        /// Số tiền quy đổi
+        /// </summary>
+        public Decimal? amount { get; set; }
+
+        //description Diễn giải VARCHAR2(4000 BYTE)
+        /// <summary>
+        /// Diễn giải
+        /// </summary>
+        public string description { get; set; }
+
+        public int? TYPE_CODE { get; set; }
+        //PURPOSE Mục đích của sản phẩm cho vay NUMBER
+        /// <summary>
+        /// Mục đích của sản phẩm cho vay
+        /// </summary>
+        public int? PURPOSE { get; set; }
+
+        //product_category Mã sản phẩm NUMBER
+        /// <summary>
+        /// Mã sản phẩm
+        /// </summary>
+        public int? product_category { get; set; }
+
+        //currency Loại tiền VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Loại tiền
+        /// </summary>
+        public string currency { get; set; }
+
+        //amount_foreign_currency Số tiền nguyên tệ NUMBER
+        /// <summary>
+        ///  Số tiền nguyên tệ
+        /// </summary>
+        public decimal? amount_foreign_currency { get; set; }
+
+        //TRANSACTION_CODE Mã giao dịch VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Mã giao dịch
+        /// </summary>
+        public string TRANSACTION_CODE { get; set; }
+
+        //SYSTEM_ID Mã Hệ thống VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Mã Hệ thống
+        /// </summary>
+        public string SYSTEM_ID { get; set; }
+
+        //customer_code Mã khách hàng VARCHAR2(30 BYTE)
+        /// <summary>
+        /// Mã khách hàng
+        /// </summary>
+        public string customer_code { get; set; }
+
+        //COMPANY_CODE Mã chi nhánh VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Mã chi nhánh
+        /// </summary>
+        public string COMPANY_CODE { get; set; }
+
+        //SOURCE_ID Mã categ.entry VARCHAR2(255 BYTE)
+        /// <summary>
+        /// Mã categ.entry
+        /// </summary>
+        public string SOURCE_ID { get; set; }
+
+        //VALUE_DATE Ngày giá trị DATE
+        /// <summary>
+        /// Ngày giá trị
+        /// </summary>
+        public DateTime? VALUE_DATE { get; set; }
+
+        //REVERSAL_MARKER Trường đánh dấu giao dịch Revert CHAR(1 BYTE)
+        /// <summary>
+        /// Trường đánh dấu giao dịch Revert
+        /// </summary>
+        public string REVERSAL_MARKER { get; set; } 
     }
 }

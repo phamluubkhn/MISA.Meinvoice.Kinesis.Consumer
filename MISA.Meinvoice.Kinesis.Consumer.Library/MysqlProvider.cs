@@ -16,21 +16,29 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     {
         public static bool CheckHealth(string connectionString)
         {
+            bool result = false;
             Console.Error.WriteLine("CheckHealth mysql start");
-            try
+            using (var connection = new MySqlConnection(connectionString))
             {
-                using (var connection = new MySqlConnection(connectionString))
+                try
                 {
                     if (connection.State == ConnectionState.Closed)
                         connection.Open();
-                    return connection.Ping();
+                    result = connection.Ping();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
+                    return false;
+                }
+                finally
+                {
+                    connection.Dispose();
+                    connection.Close();
                 }
             }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
-                return false;
-            }
+            
+            return result;
         }
 
         public static void SyncData(Record rec, string configDB, string application, ref int errorCount)
@@ -118,7 +126,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             }
         }
 
-        public static void SyncBatchData(List<Record> rec, string configDB, string application, int maxErrorCountToShutDown)
+        public static void SyncData(List<Record> rec, string configDB, string application, int maxErrorCountToShutDown, string kinesisShardId, ref string errorCode, ref int positionError)
         {
             using (var _connection = new MySqlConnection(configDB))
             {
@@ -130,18 +138,21 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     int errorCount = 0;
                     foreach (var item in rec)
                     {
+                        positionError++;
                         if (errorCount >= maxErrorCountToShutDown)
                         {
                             RecordProcessorEntity recordProcessorEntity = MysqlProvider.BuildRecordLogData(item, application, SyncDataErrorLevel.StopConsumer, $"{application} Reach Max Error Count To ShutDown");
                             SaveSyncDataError(recordProcessorEntity, configDB);
-                            throw new Exception($"{application} Reach Max Error Count To ShutDown");
+                            errorCode = "E1000";
+                            break;
+                            //throw new Exception($"{application} Reach Max Error Count To ShutDown");
                         }
                         bool isError = false;
                         try
                         {
                             //Console.WriteLine($"Execute Start {DateTime.Now.Second}- {DateTime.Now.Millisecond} for {item.SequenceNumber} " );
                             DynamicParameters dynamicParameters = new DynamicParameters();
-                            string procedureName = BuildSyncDataParam(item.Data, application, dynamicParameters);
+                            string procedureName = BuildSyncDataParam(item.Data, application, dynamicParameters, item.SequenceNumber);
                             if (!string.IsNullOrEmpty(procedureName))
                             {
                                 _connection.Execute(procedureName, dynamicParameters, commandType: CommandType.StoredProcedure);
@@ -197,6 +208,190 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         }
 
+        private static string ProcessTransactionRecord(Record record, string configDB, string application)
+        {
+            string result = "";
+            try
+            {
+                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
+                TRANSACTION_DATA transaction = JsonConvert.DeserializeObject<TRANSACTION_DATA>(recordData);
+                result = string.Format("(UUID(),{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23},{24},{25},{26},{27},{28},{29},{30},{31},{32},{33}, now())",
+                    transaction.ENTRY_ID == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ENTRY_ID)}'",
+                    transaction.ENTRY_TYPE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ENTRY_TYPE)}'",
+                    transaction.BUYER_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.BUYER_CODE)}'",
+                    transaction.BRANCH_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.BRANCH_CODE)}'",
+                    transaction.BUYER_BANK_ACCOUNT == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.BUYER_BANK_ACCOUNT)}'",
+                    transaction.CURRENCY_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.CURRENCY_CODE)}'",
+                    transaction.PAYMENT_METHOD_NAME == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.PAYMENT_METHOD_NAME)}'",
+                    transaction.INV_TYPE_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.INV_TYPE_CODE)}'",
+                    transaction.INV_NOTE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.INV_NOTE)}'",
+                    transaction.TRANSFER_DATE.HasValue ? $"'{transaction.TRANSFER_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    transaction.TRANS_NO == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.TRANS_NO)}'",
+
+                    transaction.EXCHANGE_RATE.HasValue ? transaction.EXCHANGE_RATE.ToString() : "NULL",
+                    transaction.ITEM_NAME == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ITEM_NAME)}'",
+                    transaction.UNIT_NAME == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.UNIT_NAME)}'",
+                    transaction.QUANTITY.HasValue ? transaction.QUANTITY.ToString() : "NULL",
+                    transaction.UNIT_PRICE.HasValue ? transaction.UNIT_PRICE.ToString() : "NULL",
+                    transaction.VAT_CATEGORY_PERCENTAGE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.VAT_CATEGORY_PERCENTAGE)}'",
+                    transaction.VAT_AMOUNT.HasValue ? transaction.VAT_AMOUNT.ToString() : "NULL",
+                    transaction.TOTAL_AMOUNT_WITHOUT_VAT.HasValue ? transaction.TOTAL_AMOUNT_WITHOUT_VAT.ToString() : "NULL",
+                    transaction.TOTAL_AMOUNT.HasValue ? transaction.TOTAL_AMOUNT.ToString() : "NULL",
+                    transaction.IS_SOURCE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.IS_SOURCE)}'",
+
+                    transaction.MODULE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.MODULE)}'",
+                    transaction.PROCESS_DATE.HasValue ? $"'{transaction.PROCESS_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    transaction.CREATION_DATE.HasValue ? $"'{transaction.CREATION_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    transaction.ACCOUNT_CO_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ACCOUNT_CO_CODE)}'",
+                    transaction.PRIORITY.HasValue ? transaction.PRIORITY.ToString() : "NULL",
+                    transaction.PALCAT == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.PALCAT)}'",
+                    transaction.AMOUNT_LCY.HasValue ? transaction.AMOUNT_LCY.ToString() : "NULL",
+                    transaction.PRODCAT.HasValue ? transaction.PRODCAT.ToString() : "NULL",
+                    transaction.TRANSACTION_TYPE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.TRANSACTION_TYPE)}'",
+                    transaction.REVERT_FLAG == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.REVERT_FLAG)}'",
+                    transaction.TRANSACTION_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.TRANSACTION_CODE)}'",
+                    transaction.ORIGIN_TRANS_REF == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ORIGIN_TRANS_REF)}'",
+                    MySqlHelper.EscapeString(record.SequenceNumber)); ;
+            }
+            catch (Exception e)
+            {
+
+                Console.WriteLine("Exception: " + e.Message);
+                result = "";
+                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                SaveSyncDataError(recordProcessorEntity, configDB);
+            }
+            return result;
+        }
+
+        public static bool SyncBatchTransactionData(List<Record> rec, string configDB)
+        {
+            bool result = true;
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.Append("INSERT INTO trans_data VALUES ");
+
+            using (MySqlConnection mConnection = new MySqlConnection(configDB))
+            {
+                List<string> rows = new List<string>();
+                foreach (var item in rec)
+                {
+                    string rowText = ProcessTransactionRecord(item, configDB, KCLApplication.Transaction);
+                    if (!string.IsNullOrEmpty(rowText))
+                    {
+                        rows.Add(rowText);
+                    }
+                }
+                stringBuilder.Append(string.Join(",", rows));
+                stringBuilder.Append(";");
+                string cmdExecuteTransdata = stringBuilder.ToString();
+                string cmdExecute = stringBuilder.ToString();
+                mConnection.Open();
+                using MySqlTransaction transaction = mConnection.BeginTransaction();
+                try
+                {
+                    mConnection.Execute(cmdExecuteTransdata, transaction: transaction, commandType: CommandType.Text);
+                    string cmdExecuteTransdataOrg = cmdExecuteTransdata.Replace("trans_data", "trans_data_org");
+                    mConnection.Execute(cmdExecuteTransdataOrg, transaction: transaction, commandType: CommandType.Text);
+                    //mConnection.Execute("Proc_SyncTransactionTempData", null, commandType: CommandType.StoredProcedure);
+                    transaction.Commit();
+                }
+                catch (Exception e)
+                {
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(rec[0], KCLApplication.Transaction, SyncDataErrorLevel.BatchInsertException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
+                    transaction.Rollback();
+                    result = false;
+                }
+            }
+            return result;
+        }
+
+        private static string ProcessPlgtgtRecord(Record record, string configDB, string application)
+        {
+            string result = "";
+            try
+            {
+                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
+                Pl01gtgt pl01Gtgt = JsonConvert.DeserializeObject<Pl01gtgt>(recordData);
+                bool reversalMarker = true;
+                if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
+                {
+                    reversalMarker = false;
+                }
+                result = string.Format("({0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18}, now())",
+                    pl01Gtgt.contract_number == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.contract_number)}'",
+                    pl01Gtgt.COMPANY == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.COMPANY)}'",
+                    pl01Gtgt.pl_category,
+                    pl01Gtgt.booking_date.HasValue ? $"'{pl01Gtgt.booking_date.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    pl01Gtgt.amount,
+                    pl01Gtgt.description == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.description)}'",
+                    pl01Gtgt.TYPE_CODE.HasValue ? pl01Gtgt.TYPE_CODE.ToString() : "NULL",
+                    pl01Gtgt.PURPOSE.HasValue ? pl01Gtgt.PURPOSE.ToString() : "NULL",
+                    pl01Gtgt.product_category.HasValue ? pl01Gtgt.product_category.ToString() : "NULL",
+                    pl01Gtgt.currency == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.currency)}'",
+                    pl01Gtgt.amount_foreign_currency.HasValue ? pl01Gtgt.amount_foreign_currency.ToString() : "NULL",
+                    pl01Gtgt.TRANSACTION_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.TRANSACTION_CODE)}'",
+                    pl01Gtgt.SYSTEM_ID == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.SYSTEM_ID)}'",
+                    pl01Gtgt.customer_code == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.customer_code)}'",
+                    pl01Gtgt.SOURCE_ID == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.SOURCE_ID)}'",
+                    pl01Gtgt.VALUE_DATE.HasValue ? $"'{pl01Gtgt.VALUE_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    reversalMarker ? "1" : "0",
+                    pl01Gtgt.COMPANY_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.COMPANY_CODE)}'",
+                    MySqlHelper.EscapeString(record.SequenceNumber));         
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Exception: " + e.Message);
+                result = "";
+                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                SaveSyncDataError(recordProcessorEntity, configDB);
+            }
+            return result;
+        }
+
+        public static bool SyncBatchPlgtgtData(List<Record> rec, string configDB)
+        {
+            bool result = true;
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.Append("INSERT INTO pl01gtgt VALUES ");
+
+            using (MySqlConnection mConnection = new MySqlConnection(configDB))
+            {
+                List<string> rows = new List<string>();
+                foreach (var item in rec)
+                {
+                    string rowText = ProcessPlgtgtRecord(item, configDB, KCLApplication.Transaction);
+                    if (!string.IsNullOrEmpty(rowText))
+                    {
+                        rows.Add(rowText);
+                    }
+                }
+                stringBuilder.Append(string.Join(",", rows));
+                stringBuilder.Append("as a ON DUPLICATE KEY UPDATE TRANS_NO = a.TRANS_NO, COMPANY = a.COMPANY, PL_CATEGORY = a.PL_CATEGORY, BOOKING_DATE = a.BOOKING_DATE, AMOUNT = a.AMOUNT, DESCRIPTION = a.DESCRIPTION, TYPE_CODE = a.TYPE_CODE, PURPOSE = a.PURPOSE,PRODCAT = a.PRODCAT,CURRENCY = a.CURRENCY,AMOUNT_FCY= a.AMOUNT_FCY,TRANSACTION_CODE = a.TRANSACTION_CODE,SYSTEM_ID = a.SYSTEM_ID,BUYER_CODE = a.BUYER_CODE,VALUE_DATE = a.VALUE_DATE,REVERSAL_MARKER = a.REVERSAL_MARKER,COMPANY_CODE = a.COMPANY_CODE,SEQUENCE_NUMBER = a.SEQUENCE_NUMBER,MODIFY_DATE = NOW();");
+                stringBuilder.Append(";");
+                mConnection.Open();
+                using MySqlTransaction transaction = mConnection.BeginTransaction();
+                try
+                {
+                    mConnection.Execute(stringBuilder.ToString(), transaction: transaction, commandType: CommandType.Text);
+                    transaction.Commit();
+                }
+                catch (Exception e)
+                {
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(rec[0], KCLApplication.Pl01GTGT, SyncDataErrorLevel.BatchInsertException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
+                    transaction.Rollback();
+                    result = false;
+                }
+                finally
+                {
+                    mConnection.Dispose();
+                    mConnection.Close();
+                }
+            }
+            return result;
+        }
+
         public static void ReSyncData(string id, byte[] recordData, string configDB, string application)
         {
             DynamicParameters dynamicParameters = new DynamicParameters();
@@ -238,9 +433,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             }
         }
 
-
-
-        private static string BuildSyncDataParam(byte[] data, string application, DynamicParameters dynamicParameters)
+        private static string BuildSyncDataParam(byte[] data, string application, DynamicParameters dynamicParameters, string sequenceNumber = null)
         {
             string procedureName = "";
             try
@@ -266,6 +459,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                             dynamicParameters.Add("CustomerName", customer.BUYER_LEGAL_NAME);
                             dynamicParameters.Add("CustomerTaxCode", customer.TAX_CODE);
                             dynamicParameters.Add("Priority", customer.PRIORITY);
+                            dynamicParameters.Add("PartitionDate", customer.DS_PARTITION_DATE);
                             procedureName = "Proc_SyncCustomerData";
                         }
                         else
@@ -284,6 +478,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                             dynamicParameters.Add("Category", customerBankAccount.CATEGORY);
                             dynamicParameters.Add("Currency", customerBankAccount.CURRENCY);
                             dynamicParameters.Add("Status", customerBankAccount.STATUS);
+                            dynamicParameters.Add("PartitionDate", customerBankAccount.DS_PARTITION_DATE);
                             procedureName = "Proc_SyncCustomerBankAccount";
                         }
                         else
@@ -297,8 +492,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         if (company != null)
                         {
                             dynamicParameters.Add("CompanyCode", company.COMPANY_CODE);
-                            dynamicParameters.Add("CompanyName", company.NAME_LEAD_COM);
+                            dynamicParameters.Add("CompanyName", company.NAME);
                             dynamicParameters.Add("Status", company.STATUS);
+                            dynamicParameters.Add("PartitionDate", company.DS_PARTITION_DATE);
                             procedureName = "Proc_SyncCompanyData";
                         }
                         else
@@ -320,7 +516,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                             dynamicParameters.Add("PAYMENT_METHOD_NAME", transaction.PAYMENT_METHOD_NAME);
                             dynamicParameters.Add("INV_TYPE_CODE", transaction.INV_TYPE_CODE);
                             dynamicParameters.Add("INV_NOTE", transaction.INV_NOTE);
-                            dynamicParameters.Add("TRANFER_DATE", transaction.TRANFER_DATE);
+                            dynamicParameters.Add("TRANFER_DATE", transaction.TRANSFER_DATE);
                             dynamicParameters.Add("TRANS_NO", transaction.TRANS_NO);
                             dynamicParameters.Add("EXCHANGE_RATE", transaction.EXCHANGE_RATE);
                             dynamicParameters.Add("ITEM_NAME", transaction.ITEM_NAME);
@@ -344,11 +540,50 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                             dynamicParameters.Add("REVERT_FLAG", transaction.REVERT_FLAG);
                             dynamicParameters.Add("TRANSACTION_CODE", transaction.TRANSACTION_CODE);
                             dynamicParameters.Add("ORIGIN_TRANS_REF", transaction.ORIGIN_TRANS_REF);
+                            dynamicParameters.Add("SequenceNumber", sequenceNumber);
+
                             procedureName = "Proc_SyncTransactionData";
                         }
                         else
                         {
                             throw new Exception("Deserialize TRANSACTION_DATA Fails");
+                        }
+                        break;
+                    case KCLApplication.Pl01GTGT:
+                        Pl01gtgt pl01Gtgt = JsonConvert.DeserializeObject<Pl01gtgt>(recordData);
+                        if (pl01Gtgt != null)
+                        {
+                            bool reversalMarker = true;
+                            if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
+                            {
+                                reversalMarker = false;
+                            }
+
+                            dynamicParameters.Add("TRANS_NO", pl01Gtgt.contract_number);
+                            dynamicParameters.Add("COMPANY", pl01Gtgt.COMPANY);
+                            dynamicParameters.Add("PL_CATEGORY", pl01Gtgt.pl_category);
+                            dynamicParameters.Add("BOOKING_DATE", pl01Gtgt.booking_date);
+                            dynamicParameters.Add("AMOUNT", pl01Gtgt.amount);
+                            dynamicParameters.Add("DESCRIPTION", pl01Gtgt.description);
+                            dynamicParameters.Add("TYPE_CODE", pl01Gtgt.TYPE_CODE);
+                            dynamicParameters.Add("PURPOSE", pl01Gtgt.PURPOSE);
+                            dynamicParameters.Add("PRODCAT", pl01Gtgt.product_category);
+                            dynamicParameters.Add("CURRENCY", pl01Gtgt.currency);
+                            dynamicParameters.Add("AMOUNT_FCY", pl01Gtgt.amount_foreign_currency);
+                            dynamicParameters.Add("TRANSACTION_CODE", pl01Gtgt.TRANSACTION_CODE);
+                            dynamicParameters.Add("SYSTEM_ID", pl01Gtgt.SYSTEM_ID);
+                            dynamicParameters.Add("BUYER_CODE", pl01Gtgt.customer_code);
+                            dynamicParameters.Add("SOURCE_ID", pl01Gtgt.SOURCE_ID);
+                            dynamicParameters.Add("VALUE_DATE", pl01Gtgt.VALUE_DATE);
+                            dynamicParameters.Add("REVERSAL_MARKER", reversalMarker);
+                            dynamicParameters.Add("COMPANY_CODE", pl01Gtgt.COMPANY_CODE);
+                            dynamicParameters.Add("SequenceNumber", sequenceNumber);
+
+                            procedureName = "Proc_SyncPl01GtgtData";
+                        }
+                        else
+                        {
+                            throw new Exception("Deserialize pl01Gtgt Fails");
                         }
                         break;
                     default:

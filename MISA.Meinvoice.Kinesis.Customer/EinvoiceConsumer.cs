@@ -61,16 +61,25 @@ namespace MISA.Meinvoice.Kinesis
         /// </param>
         public void ProcessRecords(ProcessRecordsInput input)
         {
-            Console.Error.WriteLine("ProcessRecords Start v4 - Record count " + input.Records.Count);
-            Console.Error.WriteLine("ProcessRecords Start v4 time" + DateTime.Now);
+            Console.Error.WriteLine("ProcessRecords Start v5 - Record count " + input.Records.Count);
+            Console.Error.WriteLine("ProcessRecords Start v5 time" + DateTime.Now);
+            Console.Error.WriteLine("NextCheckpointTime time" + _nextCheckpointTime);
+            string errorCode = "";
+            int positionError = -1;
             // Process records and perform all exception handling.
-            ProcessRecords(input.Records);
-            Console.Error.WriteLine("ProcessRecords End v4 time" + DateTime.Now);
+            ProcessRecords(input.Records, ref errorCode, ref positionError);
+            Console.Error.WriteLine("ProcessRecords End v5 time" + DateTime.Now);
             // Checkpoint once every checkpoint interval.
             if (DateTime.UtcNow >= _nextCheckpointTime)
             {
                 Checkpoint(input.Checkpointer);
                 _nextCheckpointTime = DateTime.UtcNow + CheckpointInterval;
+            }
+            if (!string.IsNullOrEmpty(errorCode))
+            {
+                Record record = input.Records[positionError];
+                CheckpointRecord(input.Checkpointer, record);
+                throw new Exception($"{applicationName} Reach Max Error Count To ShutDown");
             }
         }
 
@@ -78,12 +87,25 @@ namespace MISA.Meinvoice.Kinesis
         /// This method processes records, performing retries as needed.
         /// </summary>
         /// <param name="records">The records to be processed.</param>
-        private void ProcessRecords(List<Record> records)
+        private void ProcessRecords(List<Record> records, ref string errorCode, ref int positionError)
         {
             //Kiểm tra kết nối DB
             if (MysqlProvider.CheckHealth(configDB))
             {
-                MysqlProvider.SyncBatchData(records, configDB, applicationName, maxErrorCountToShutDown);
+                bool isBatchInsertSuccess = true;
+                if (applicationName == KCLApplication.Transaction )
+                {
+                    isBatchInsertSuccess = MysqlProvider.SyncBatchTransactionData(records, configDB);
+                }
+                else if (applicationName == KCLApplication.Pl01GTGT)
+                {
+                    isBatchInsertSuccess = MysqlProvider.SyncBatchPlgtgtData(records, configDB);
+                }
+
+                if (!isBatchInsertSuccess || (applicationName == KCLApplication.Company || applicationName == KCLApplication.Customer || applicationName == KCLApplication.CustomerBankAccount))
+                {
+                    MysqlProvider.SyncData(records, configDB, applicationName, maxErrorCountToShutDown, this._kinesisShardId, ref errorCode, ref positionError);
+                }
                 //Kiếm tra check lỗi quá số lần liên tiếp => Shutdown
                 //int errorCount = 0;
                 //foreach (Record rec in records)
@@ -117,6 +139,12 @@ namespace MISA.Meinvoice.Kinesis
             Console.Error.WriteLine($"Checkpointing shard {_kinesisShardId}-Time: {DateTime.Now}" );
             checkpointer.Checkpoint(EinvoiceCheckpointErrorHandler.Create(NumRetries, Backoff,_kinesisShardId, configDB, applicationName));
             Console.Error.WriteLine($"End Checkpointing shard {_kinesisShardId}-Time: {DateTime.Now}");
+        }
+
+        private void CheckpointRecord(Checkpointer checkpointer, Record record)
+        {
+            Console.Error.WriteLine($"CheckpointRecord shard {_kinesisShardId}-Time: {DateTime.Now}");
+            checkpointer.Checkpoint(record);
         }
 
         public void LeaseLost(LeaseLossInput leaseLossInput)
