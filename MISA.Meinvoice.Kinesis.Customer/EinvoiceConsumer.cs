@@ -9,6 +9,8 @@ using System.Data;
 using Microsoft.Extensions.Configuration;
 using MISA.Meinvoice.Kinesis.Consumer.Library;
 using Microsoft.Extensions.DependencyInjection;
+using Amazon.Runtime;
+using System.Threading.Tasks;
 
 namespace MISA.Meinvoice.Kinesis
 {
@@ -101,8 +103,11 @@ namespace MISA.Meinvoice.Kinesis
                 {
                     isBatchInsertSuccess = MysqlProvider.SyncBatchPlgtgtData(records, configDB);
                 }
-
-                if (!isBatchInsertSuccess || (applicationName == KCLApplication.Company || applicationName == KCLApplication.Customer || applicationName == KCLApplication.CustomerBankAccount))
+                else if (applicationName == KCLApplication.CustomerBankAccount)
+                {
+                    isBatchInsertSuccess = MysqlProvider.SyncBatchBankData(records, configDB);
+                }
+                if (!isBatchInsertSuccess || (applicationName == KCLApplication.Company || applicationName == KCLApplication.Customer))
                 {
                     MysqlProvider.SyncData(records, configDB, applicationName, maxErrorCountToShutDown, this._kinesisShardId, ref errorCode, ref positionError);
                 }
@@ -187,15 +192,23 @@ namespace MISA.Meinvoice.Kinesis
             {
                 IConfiguration Config = new ConfigurationBuilder()
                 .AddJsonFile("appSettings.json", optional: false, reloadOnChange: true).Build();
-
-                ConsumerConfig.mysqlDbConfig = Config.GetSection("MysqlDB").Value;
                 ConsumerConfig.applicationName = Config.GetSection("ApplicationName").Value;
                 ConsumerConfig.maxErrorCountToShutDown = int.Parse(Config.GetSection("MaxErrorCountToShutDown").Value);
                 ConsumerConfig.logPlaintextData = bool.Parse(Config.GetSection("IsLogPlaintextData").Value);
-
-                //string backoff = Config.GetSection("Backoff").Value;
-                //string checkpointInterval = Config.GetSection("CheckpointInterval").Value;
-                //string numRetries = Config.GetSection("NumRetries").Value;
+                //ConsumerConfig.useSecretsManager = bool.Parse(Config.GetSection("UseSecretsManager").Value);
+                //if (ConsumerConfig.useSecretsManager)
+                //{
+                //    ConsumerConfig.secretName = Config.GetSection("SecretName").Value;
+                //    ConsumerConfig.mysqlDbConfig = SecretsManager.GetRDSConnectionString(ConsumerConfig.secretName);
+                //    Console.Error.WriteLine($"mysqlDbConfig result {ConsumerConfig.mysqlDbConfig}");
+                //    bool pingStatus = MysqlProvider.CheckHealth(ConsumerConfig.mysqlDbConfig);
+                //    Console.Error.WriteLine($"Check SecretsManager result {ConsumerConfig.mysqlDbConfig}-Ping status: {pingStatus}");
+                //}
+                //else
+                //{
+                //    ConsumerConfig.mysqlDbConfig = Config.GetSection("MysqlDB").Value;
+                //}
+                ConsumerConfig.mysqlDbConfig = Config.GetSection("MysqlDB").Value;
 
                 KclProcess.Create(new EinvoiceRecordProcessor()).Run();
             }

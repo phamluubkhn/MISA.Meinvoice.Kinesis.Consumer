@@ -306,7 +306,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             return result;
         }
 
-        private static string ProcessPlgtgtRecord(Record record, string configDB, string application)
+        private static string ProcessPlgtgtRecord(Record record, string configDB, string application, int maxId)
         {
             string result = "";
             try
@@ -318,7 +318,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 {
                     reversalMarker = false;
                 }
-                result = string.Format("({0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18}, now())",
+                result = string.Format("({0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18}, now(), {19})",
                     pl01Gtgt.contract_number == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.contract_number)}'",
                     pl01Gtgt.COMPANY == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.COMPANY)}'",
                     pl01Gtgt.pl_category,
@@ -337,7 +337,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     pl01Gtgt.VALUE_DATE.HasValue ? $"'{pl01Gtgt.VALUE_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
                     reversalMarker ? "1" : "0",
                     pl01Gtgt.COMPANY_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.COMPANY_CODE)}'",
-                    MySqlHelper.EscapeString(record.SequenceNumber));         
+                    MySqlHelper.EscapeString(record.SequenceNumber),
+                    maxId);         
             }
             catch (Exception e)
             {
@@ -357,14 +358,22 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
             using (MySqlConnection mConnection = new MySqlConnection(configDB))
             {
+                int maxcurrentID = 0;
+                var  maxPl =  mConnection.ExecuteScalar("SELECT MAX(ID) from pl01gtgt;", commandType: CommandType.Text);
+                if (maxPl != null)
+                {
+                    maxcurrentID = int.Parse(maxPl.ToString());
+
+                }
                 List<string> rows = new List<string>();
                 foreach (var item in rec)
                 {
-                    string rowText = ProcessPlgtgtRecord(item, configDB, KCLApplication.Transaction);
+                    string rowText = ProcessPlgtgtRecord(item, configDB, KCLApplication.Transaction, maxcurrentID);
                     if (!string.IsNullOrEmpty(rowText))
                     {
                         rows.Add(rowText);
                     }
+                    maxcurrentID++;
                 }
                 stringBuilder.Append(string.Join(",", rows));
                 stringBuilder.Append("as a ON DUPLICATE KEY UPDATE TRANS_NO = a.TRANS_NO, COMPANY = a.COMPANY, PL_CATEGORY = a.PL_CATEGORY, BOOKING_DATE = a.BOOKING_DATE, AMOUNT = a.AMOUNT, DESCRIPTION = a.DESCRIPTION, TYPE_CODE = a.TYPE_CODE, PURPOSE = a.PURPOSE,PRODCAT = a.PRODCAT,CURRENCY = a.CURRENCY,AMOUNT_FCY= a.AMOUNT_FCY,TRANSACTION_CODE = a.TRANSACTION_CODE,SYSTEM_ID = a.SYSTEM_ID,BUYER_CODE = a.BUYER_CODE,VALUE_DATE = a.VALUE_DATE,REVERSAL_MARKER = a.REVERSAL_MARKER,COMPANY_CODE = a.COMPANY_CODE,SEQUENCE_NUMBER = a.SEQUENCE_NUMBER,MODIFY_DATE = NOW();");
@@ -388,6 +397,78 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     mConnection.Dispose();
                     mConnection.Close();
                 }
+            }
+            return result;
+        }
+
+        public static bool SyncBatchBankData(List<Record> rec, string configDB)
+        {
+            bool result = true;
+            StringBuilder stringBuilder = new StringBuilder();
+            stringBuilder.Append("INSERT INTO customerbankaccount (ID, CustomerID, AccountNumber, CloseDate, Category, Currency, Status, ModifiedDate, DsPartitionDate) VALUES ");
+
+            using (MySqlConnection mConnection = new MySqlConnection(configDB))
+            {
+                List<string> rows = new List<string>();
+                foreach (var item in rec)
+                {
+                    string rowText = ProcessBankRecord(item, configDB, KCLApplication.Transaction);
+                    if (!string.IsNullOrEmpty(rowText))
+                    {
+                        rows.Add(rowText);
+                    }
+                }
+                stringBuilder.Append(string.Join(",", rows));
+                stringBuilder.Append("as a ON DUPLICATE KEY UPDATE CloseDate = a.CloseDate, Category = a.Category, Currency = a.Currency, Status = a.Status, DsPartitionDate = a.DsPartitionDate, ModifiedDate  = NOW();");
+                stringBuilder.Append(";");
+                mConnection.Open();
+                using MySqlTransaction transaction = mConnection.BeginTransaction();
+                try
+                {
+                    mConnection.Execute(stringBuilder.ToString(), transaction: transaction, commandType: CommandType.Text);
+                    transaction.Commit();
+                }
+                catch (Exception e)
+                {
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(rec[0], KCLApplication.CustomerBankAccount, SyncDataErrorLevel.BatchInsertException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
+                    transaction.Rollback();
+                    result = false;
+                }
+                finally
+                {
+                    mConnection.Dispose();
+                    mConnection.Close();
+                }
+            }
+            return result;
+        }
+
+
+
+        private static string ProcessBankRecord(Record record, string configDB, string application)
+        {
+            string result = "";
+            try
+            {
+                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
+                CUSTOMER_BANK_ACCOUNT bank = JsonConvert.DeserializeObject<CUSTOMER_BANK_ACCOUNT>(recordData);
+                result = string.Format("({0},{1},{2},{3},{4},{5},{6}, now(), {7})",
+                    $"'{Guid.NewGuid()}'",
+                    bank.CUSTOMER_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.CUSTOMER_CODE)}'",
+                    bank.ACCOUNT_NUMBER == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.ACCOUNT_NUMBER)}'",
+                    bank.ACCOUNT_CLOSED_DATE.HasValue ? $"'{bank.ACCOUNT_CLOSED_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL",
+                    bank.CATEGORY == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.CATEGORY)}'",
+                    bank.CURRENCY == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.CURRENCY)}'",
+                    bank.STATUS.ToString(),
+                    bank.DS_PARTITION_DATE.HasValue ? $"'{bank.DS_PARTITION_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL"); 
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine("Exception: " + e.Message);
+                result = "";
+                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                SaveSyncDataError(recordProcessorEntity, configDB);
             }
             return result;
         }
