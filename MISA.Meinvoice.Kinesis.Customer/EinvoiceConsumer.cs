@@ -22,6 +22,8 @@ namespace MISA.Meinvoice.Kinesis
 
         private static int maxErrorCountToShutDown = ConsumerConfig.maxErrorCountToShutDown;
 
+        private static int totalRecord = 0;
+
         /// <value>The time to wait before this record processor
         /// reattempts either a checkpoint, or the processing of a record.</value>
         private static readonly TimeSpan Backoff = TimeSpan.FromSeconds(30);
@@ -64,8 +66,10 @@ namespace MISA.Meinvoice.Kinesis
         public void ProcessRecords(ProcessRecordsInput input)
         {
             Console.Error.WriteLine("ProcessRecords Start v5 - Record count " + input.Records.Count);
+            totalRecord += input.Records.Count;
             Console.Error.WriteLine("ProcessRecords Start v5 time" + DateTime.Now);
             Console.Error.WriteLine("NextCheckpointTime time" + _nextCheckpointTime);
+            Console.Error.WriteLine("Total record: " + totalRecord);
             string errorCode = "";
             int positionError = -1;
             // Process records and perform all exception handling.
