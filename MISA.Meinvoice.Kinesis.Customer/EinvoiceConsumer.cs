@@ -24,6 +24,12 @@ namespace MISA.Meinvoice.Kinesis
 
         private static int totalRecord = 0;
 
+        private static ManualCheckpointer manualCheckpointer = new ManualCheckpointer()
+        {
+            Checkpointer = null,
+            IsChecked = true
+        };
+
         /// <value>The time to wait before this record processor
         /// reattempts either a checkpoint, or the processing of a record.</value>
         private static readonly TimeSpan Backoff = TimeSpan.FromSeconds(30);
@@ -55,6 +61,7 @@ namespace MISA.Meinvoice.Kinesis
         {
             Console.Error.WriteLine("Initializing record processor for shard: " + input.ShardId);
             this._kinesisShardId = input.ShardId;
+            //ManualCheckpoint();
         }
 
         /// <summary>
@@ -80,12 +87,34 @@ namespace MISA.Meinvoice.Kinesis
             {
                 Checkpoint(input.Checkpointer);
                 _nextCheckpointTime = DateTime.UtcNow + CheckpointInterval;
+                //manualCheckpointer.IsChecked = true;
             }
+            //else
+            //{
+            //    manualCheckpointer.Checkpointer = input.Checkpointer;
+            //    manualCheckpointer.IsChecked = false;
+            //}
             if (!string.IsNullOrEmpty(errorCode))
             {
                 Record record = input.Records[positionError];
                 CheckpointRecord(input.Checkpointer, record);
                 throw new Exception($"{applicationName} Reach Max Error Count To ShutDown");
+            }
+        }
+
+        public void ManualCheckpoint()
+        {
+            while (true)
+            {
+                if (!manualCheckpointer.IsChecked)
+                {
+                    lock (manualCheckpointer)
+                    {
+                        Checkpoint(manualCheckpointer.Checkpointer);
+                        manualCheckpointer.IsChecked = true;
+                    }
+                }
+                Thread.Sleep(TimeSpan.FromSeconds(60));
             }
         }
 
@@ -146,7 +175,8 @@ namespace MISA.Meinvoice.Kinesis
         private void Checkpoint(Checkpointer checkpointer)
         {
             Console.Error.WriteLine($"Checkpointing shard {_kinesisShardId}-Time: {DateTime.Now}" );
-            checkpointer.Checkpoint(EinvoiceCheckpointErrorHandler.Create(NumRetries, Backoff,_kinesisShardId, configDB, applicationName));
+            //checkpointer.Checkpoint(EinvoiceCheckpointErrorHandler.Create(NumRetries, Backoff,_kinesisShardId, configDB, applicationName));
+            checkpointer.Checkpoint(RetryingCheckpointErrorHandler.Create(NumRetries, Backoff));
             Console.Error.WriteLine($"End Checkpointing shard {_kinesisShardId}-Time: {DateTime.Now}");
         }
 

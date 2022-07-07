@@ -208,7 +208,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         }
 
-        private static string ProcessTransactionRecord(Record record, string configDB, string application)
+        private static string ProcessTransactionRecord(Record record, string configDB, string application, ref List<string> rowsCheckDuplicate)
         {
             string result = "";
             try
@@ -252,6 +252,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     transaction.TRANSACTION_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.TRANSACTION_CODE)}'",
                     transaction.ORIGIN_TRANS_REF == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ORIGIN_TRANS_REF)}'",
                     MySqlHelper.EscapeString(record.SequenceNumber)); ;
+
+                string rowCheckDuplicate = $"('{MySqlHelper.EscapeString(record.SequenceNumber)}', '{transaction.PROCESS_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}')";
+                rowsCheckDuplicate.Add(rowCheckDuplicate);
+
             }
             catch (Exception e)
             {
@@ -270,12 +274,16 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.Append("INSERT INTO trans_data VALUES ");
 
+            StringBuilder stringBuilderTableCheckDuplicate = new StringBuilder();
+            stringBuilderTableCheckDuplicate.Append("INSERT INTO trans_data_check_duplicate VALUES ");
+
             using (MySqlConnection mConnection = new MySqlConnection(configDB))
             {
                 List<string> rows = new List<string>();
+                List<string> rowsCheckDuplicate = new List<string>();
                 foreach (var item in rec)
                 {
-                    string rowText = ProcessTransactionRecord(item, configDB, KCLApplication.Transaction);
+                    string rowText = ProcessTransactionRecord(item, configDB, KCLApplication.Transaction, ref rowsCheckDuplicate);
                     if (!string.IsNullOrEmpty(rowText))
                     {
                         rows.Add(rowText);
@@ -283,8 +291,15 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 stringBuilder.Append(string.Join(",", rows));
                 stringBuilder.Append(";");
+
+                stringBuilderTableCheckDuplicate.Append(string.Join(",", rowsCheckDuplicate));
+                stringBuilderTableCheckDuplicate.Append("as a ON DUPLICATE KEY UPDATE PROCESS_DATE = a.PROCESS_DATE");
+                stringBuilderTableCheckDuplicate.Append(";");
+
+
                 string cmdExecuteTransdata = stringBuilder.ToString();
                 string cmdExecute = stringBuilder.ToString();
+                string cmdExecuteCheckDupliate = stringBuilderTableCheckDuplicate.ToString();
                 mConnection.Open();
                 using MySqlTransaction transaction = mConnection.BeginTransaction();
                 try
@@ -292,6 +307,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     mConnection.Execute(cmdExecuteTransdata, transaction: transaction, commandType: CommandType.Text);
                     string cmdExecuteTransdataOrg = cmdExecuteTransdata.Replace("trans_data", "trans_data_org");
                     mConnection.Execute(cmdExecuteTransdataOrg, transaction: transaction, commandType: CommandType.Text);
+
+                    mConnection.Execute(cmdExecuteCheckDupliate, transaction: transaction, commandType: CommandType.Text);
                     //mConnection.Execute("Proc_SyncTransactionTempData", null, commandType: CommandType.StoredProcedure);
                     transaction.Commit();
                 }
