@@ -320,4 +320,45 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         /// </summary>
         public string REVERSAL_MARKER { get; set; } 
     }
+
+    public class CURRENCY
+    {
+        public string currency_code { get; set; }
+        public string curr_no { get; set; }
+        public decimal? sell_rate { get; set; }
+        public decimal? buy_rate { get; set; }
+        public decimal? mid_reval_rate { get; set; }
+        public DateTime? process_date { get; set; }
+        public string ds_partition_date { get; set; }
+    }
+
+    public class END_OF_FILE
+    {
+        public string msg_type { get; set; }
+
+        public END_OF_FILE_DETAILS details { get; set; }
+    }
+
+    public class END_OF_FILE_DETAILS
+    {
+        public string module_name { get; set; }
+        public string is_source { get; set; }
+        public int produced { get; set; }
+        public int skipped { get; set; }
+        public int total { get; set; }
+        public DateTime __pushed_at { get; set; }
+    }
+
+    public class ApiResult
+    {
+        public bool Success { get; set; }
+        public string ErrorCode { get; set; }
+        public string Data { get; set; }
+    }
+
+    public class SecretManagerData
+    {
+        public string username { get; set; }
+        public string password { get; set; }
+    }
 }

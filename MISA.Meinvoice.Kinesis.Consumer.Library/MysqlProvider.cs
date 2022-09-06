@@ -9,6 +9,7 @@ using System.Data;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 
 namespace MISA.Meinvoice.Kinesis.Consumer.Library
 {
@@ -16,29 +17,30 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     {
         public static bool CheckHealth(string connectionString)
         {
-            bool result = false;
-            Console.Error.WriteLine("CheckHealth mysql start");
-            using (var connection = new MySqlConnection(connectionString))
-            {
-                try
-                {
-                    if (connection.State == ConnectionState.Closed)
-                        connection.Open();
-                    result = connection.Ping();
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
-                    return false;
-                }
-                finally
-                {
-                    connection.Dispose();
-                    connection.Close();
-                }
-            }
+            return true;
+            //bool result = false;
+            //Console.Error.WriteLine("CheckHealth mysql start");
+            //using (var connection = new MySqlConnection(connectionString))
+            //{
+            //    try
+            //    {
+            //        if (connection.State == ConnectionState.Closed)
+            //            connection.Open();
+            //        result = connection.Ping();
+            //    }
+            //    catch (Exception ex)
+            //    {
+            //        Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
+            //        return false;
+            //    }
+            //    finally
+            //    {
+            //        connection.Dispose();
+            //        connection.Close();
+            //    }
+            //}
             
-            return result;
+            //return result;
         }
 
         public static void SyncData(Record rec, string configDB, string application, ref int errorCount)
@@ -47,7 +49,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             {
                 bool isError = false;
                 DynamicParameters dynamicParameters = new DynamicParameters();
-                string procedureName = BuildSyncDataParam(rec.Data, application, dynamicParameters);
+                string procedureName = BuildSyncDataParam(rec.Data, application, dynamicParameters, configDB);
                 using (var _connection = new MySqlConnection(configDB))
                 {
 
@@ -152,7 +154,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         {
                             //Console.WriteLine($"Execute Start {DateTime.Now.Second}- {DateTime.Now.Millisecond} for {item.SequenceNumber} " );
                             DynamicParameters dynamicParameters = new DynamicParameters();
-                            string procedureName = BuildSyncDataParam(item.Data, application, dynamicParameters, item.SequenceNumber);
+                            string procedureName = BuildSyncDataParam(item.Data, application, dynamicParameters, configDB, item.SequenceNumber);
                             if (!string.IsNullOrEmpty(procedureName))
                             {
                                 _connection.Execute(procedureName, dynamicParameters, commandType: CommandType.StoredProcedure);
@@ -162,14 +164,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         catch (MySqlException ex)
                         {
                             isError = true;
-                            SyncErrorExtraData syncErrorExtraData = new SyncErrorExtraData();
-                            if (ex != null && !string.IsNullOrEmpty(ex.SqlState))
-                            {
-                                syncErrorExtraData.SqlState = ex.SqlState;
-                                syncErrorExtraData.SqlStateMessage = ex.Message;
-                            }
-                            syncErrorExtraData.SqlState = ex.SqlState;
-                            syncErrorExtraData.SqlStateMessage = ex.Message;
+                            SyncErrorExtraData syncErrorExtraData = new SyncErrorExtraData()
+                            { 
+                                SqlState = ex.SqlState,
+                                SqlStateMessage = ex.Message
+                            };
                             RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(item, application, SyncDataErrorLevel.MysqlException, ex.Message, syncErrorExtraData);
                             SaveSyncDataError(recordProcessorEntity, configDB);
                         }
@@ -211,9 +210,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         private static string ProcessTransactionRecord(Record record, string configDB, string application, ref List<string> rowsCheckDuplicate)
         {
             string result = "";
+            string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
             try
             {
-                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
                 TRANSACTION_DATA transaction = JsonConvert.DeserializeObject<TRANSACTION_DATA>(recordData);
                 result = string.Format("(UUID(),{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23},{24},{25},{26},{27},{28},{29},{30},{31},{32},{33}, now())",
                     transaction.ENTRY_ID == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ENTRY_ID)}'",
@@ -257,6 +256,18 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 rowsCheckDuplicate.Add(rowCheckDuplicate);
 
             }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                //Check End-of-file message
+                if (recordData.Contains("kinesis_stream_name"))
+                {
+                    ProcessEndOfFileMessage(recordData, configDB, application);
+                }
+                else
+                {
+                    throw;
+                }
+            }
             catch (Exception e)
             {
 
@@ -270,12 +281,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         public static bool SyncBatchTransactionData(List<Record> rec, string configDB)
         {
-            bool result = true;
+            bool applyRetry = false;
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.Append("INSERT INTO trans_data VALUES ");
-
-            StringBuilder stringBuilderTableCheckDuplicate = new StringBuilder();
-            stringBuilderTableCheckDuplicate.Append("INSERT INTO trans_data_check_duplicate VALUES ");
 
             using (MySqlConnection mConnection = new MySqlConnection(configDB))
             {
@@ -292,43 +300,46 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 stringBuilder.Append(string.Join(",", rows));
                 stringBuilder.Append(";");
 
-                stringBuilderTableCheckDuplicate.Append(string.Join(",", rowsCheckDuplicate));
-                stringBuilderTableCheckDuplicate.Append("as a ON DUPLICATE KEY UPDATE PROCESS_DATE = a.PROCESS_DATE");
-                stringBuilderTableCheckDuplicate.Append(";");
-
-
                 string cmdExecuteTransdata = stringBuilder.ToString();
                 string cmdExecute = stringBuilder.ToString();
-                string cmdExecuteCheckDupliate = stringBuilderTableCheckDuplicate.ToString();
                 mConnection.Open();
                 using MySqlTransaction transaction = mConnection.BeginTransaction();
                 try
                 {
                     mConnection.Execute(cmdExecuteTransdata, transaction: transaction, commandType: CommandType.Text);
-                    string cmdExecuteTransdataOrg = cmdExecuteTransdata.Replace("trans_data", "trans_data_org");
+                    string cmdExecuteTransdataOrg = cmdExecuteTransdata.Replace("trans_data", "trans_data_currentdate");
                     mConnection.Execute(cmdExecuteTransdataOrg, transaction: transaction, commandType: CommandType.Text);
-
-                    mConnection.Execute(cmdExecuteCheckDupliate, transaction: transaction, commandType: CommandType.Text);
-                    //mConnection.Execute("Proc_SyncTransactionTempData", null, commandType: CommandType.StoredProcedure);
                     transaction.Commit();
+                }
+                catch (MySqlException ex)
+                {
+                    //Kiểm tra nếu là lỗi timeout thì retry đến được thì thôi
+                    if (ex.Message.Contains("The Command Timeout", StringComparison.InvariantCulture))
+                    {
+                        applyRetry = true;
+                    }
                 }
                 catch (Exception e)
                 {
-                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(rec[0], KCLApplication.Transaction, SyncDataErrorLevel.BatchInsertException, e.Message);
-                    SaveSyncDataError(recordProcessorEntity, configDB);
+                    BatchRecordProcessorEntity recordProcessorEntity = BuildRecordLogBatchData(rec, KCLApplication.Transaction, SyncDataErrorLevel.BatchTransactionInsertException, e.Message);
+                    SaveBatchSyncDataError(recordProcessorEntity, configDB);
                     transaction.Rollback();
-                    result = false;
+                }
+                finally
+                {
+                    mConnection.Dispose();
+                    mConnection.Close();
                 }
             }
-            return result;
+            return applyRetry;
         }
 
         private static string ProcessPlgtgtRecord(Record record, string configDB, string application)
         {
             string result = "";
+            string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
             try
             {
-                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
                 Pl01gtgt pl01Gtgt = JsonConvert.DeserializeObject<Pl01gtgt>(recordData);
                 bool reversalMarker = true;
                 if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
@@ -356,6 +367,18 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     pl01Gtgt.COMPANY_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(pl01Gtgt.COMPANY_CODE)}'",
                     MySqlHelper.EscapeString(record.SequenceNumber)
                     );         
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                //Check End-of-file message
+                if (recordData.Contains("kinesis_stream_name"))
+                {
+                    ProcessEndOfFileMessage(recordData, configDB, application);
+                }
+                else
+                {
+                    throw;
+                }
             }
             catch (Exception e)
             {
@@ -467,9 +490,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         private static string ProcessBankRecord(Record record, string configDB, string application)
         {
             string result = "";
+            string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
             try
             {
-                string recordData = System.Text.Encoding.UTF8.GetString(record.Data);
                 CUSTOMER_BANK_ACCOUNT bank = JsonConvert.DeserializeObject<CUSTOMER_BANK_ACCOUNT>(recordData);
                 result = string.Format("({0},{1},{2},{3},{4},{5},{6}, now(), {7})",
                     $"'{Guid.NewGuid()}'",
@@ -480,6 +503,18 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     bank.CURRENCY == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.CURRENCY)}'",
                     bank.STATUS.ToString(),
                     bank.DS_PARTITION_DATE.HasValue ? $"'{bank.DS_PARTITION_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL"); 
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                //Check End-of-file message
+                if (recordData.Contains("kinesis_stream_name"))
+                {
+                    ProcessEndOfFileMessage(recordData, configDB, application);
+                }
+                else
+                {
+                    throw;
+                }
             }
             catch (Exception e)
             {
@@ -494,7 +529,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public static void ReSyncData(string id, byte[] recordData, string configDB, string application)
         {
             DynamicParameters dynamicParameters = new DynamicParameters();
-            string procedureName = BuildSyncDataParam(recordData, application, dynamicParameters);
+            string procedureName = BuildSyncDataParam(recordData, application, dynamicParameters, configDB);
             if (!string.IsNullOrEmpty(procedureName))
             {
                 dynamicParameters.Add("Id", id);
@@ -532,12 +567,12 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             }
         }
 
-        private static string BuildSyncDataParam(byte[] data, string application, DynamicParameters dynamicParameters, string sequenceNumber = null)
+        private static string BuildSyncDataParam(byte[] data, string application, DynamicParameters dynamicParameters, string configDB, string sequenceNumber = null)
         {
             string procedureName = "";
+            string recordData = System.Text.Encoding.UTF8.GetString(data);
             try
             {
-                string recordData = System.Text.Encoding.UTF8.GetString(data);
                 if (ConsumerConfig.logPlaintextData)
                 {
                     Console.WriteLine("Record data decoded: " + recordData);
@@ -685,8 +720,35 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                             throw new Exception("Deserialize pl01Gtgt Fails");
                         }
                         break;
+                    case KCLApplication.Currency:
+                        CURRENCY currency = JsonConvert.DeserializeObject<CURRENCY>(recordData);
+                        if (currency != null)
+                        {
+                            dynamicParameters.Add("CurrencyCode ", currency.currency_code);
+                            dynamicParameters.Add("CurrNo", currency.curr_no);
+                            dynamicParameters.Add("SellRate", currency.sell_rate);
+                            dynamicParameters.Add("ProcessDate", currency.process_date);
+                            procedureName = "Proc_SyncExchangeRateData";
+                        }
+                        else
+                        {
+                            throw new Exception("Deserialize CURRENCY Fails");
+                        }
+                        break;
                     default:
                         break;
+                }
+            }
+            catch (Newtonsoft.Json.JsonException ex)
+            {
+                //Check End-of-file message
+                if (recordData.Contains("kinesis_stream_name"))
+                {
+                    ProcessEndOfFileMessage(recordData, configDB, application);
+                }
+                else
+                {
+                    throw;
                 }
             }
             catch (Exception)
@@ -694,6 +756,94 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 throw;
             }
             return procedureName;
+        }
+
+        /// <summary>
+        /// </summary>
+        /// <param name="recordData"></param>
+        /// <param name="configDB"></param>
+        /// <returns></returns>
+        private static void HandleCommitEndOfFileMessage(string recordData, string configDB, string application)
+        {
+            using (var _connection = new MySqlConnection(configDB))
+            {
+                try
+                {
+                    END_OF_FILE endOfFileMessage = JsonConvert.DeserializeObject<END_OF_FILE>(recordData);
+                    DynamicParameters dynamicParameters = new DynamicParameters();
+                    dynamicParameters.Add("Application", application);
+                    dynamicParameters.Add("ModuleName", endOfFileMessage.details.module_name);
+                    dynamicParameters.Add("Produced", endOfFileMessage.details.produced);
+                    dynamicParameters.Add("ProducedDate", endOfFileMessage.details.__pushed_at);
+                    if (_connection.State == ConnectionState.Closed)
+                        _connection.Open();
+                    _connection.Execute("Proc_Datalake_HandleCommit", dynamicParameters, commandType: CommandType.StoredProcedure);
+                }
+                catch (Exception ex)
+                {
+                    throw;
+                }
+                finally
+                {
+                    if (_connection != null && _connection.State != ConnectionState.Closed)
+                    {
+                        _connection.Close();
+                    }
+                    _connection.Dispose();
+                }
+            }
+        }
+
+        /// <summary>
+        /// </summary>
+        /// <param name="recordData"></param>
+        /// <param name="configDB"></param>
+        /// <returns></returns>
+        private static bool ReconcileTransData(string configDB)
+        {
+            bool auditSuccess = false;
+            using (var _connection = new MySqlConnection(configDB))
+            {
+                try
+                {
+                    if (_connection.State == ConnectionState.Closed)
+                        _connection.Open();
+                    auditSuccess = (bool)_connection.ExecuteScalar("Proc_TransData_Reconcile", null, commandType: CommandType.StoredProcedure);
+                }
+                catch (Exception ex)
+                {
+                    throw;
+                }
+                finally
+                {
+                    if (_connection != null && _connection.State != ConnectionState.Closed)
+                    {
+                        _connection.Close();
+                    }
+                    _connection.Dispose();
+                }
+                return auditSuccess;
+            }
+        }
+
+        private static void ProcessEndOfFileMessage(string recordData, string configDB, string application)
+        {
+            HandleCommitEndOfFileMessage(recordData, configDB, application);
+            //if (handleLastCommiResult)
+            //{
+            //    //Chạy vòng lặp mỗi 5 phút so sánh số bản ghi theo module đã kéo về
+            //    int timerCount = 1;
+            //    bool auditSuccess = false;
+            //    while (timerCount <= 5 && !auditSuccess)
+            //    {
+            //        auditSuccess = ReconcileTransData(configDB);
+            //        Thread.Sleep(300000);
+            //    }
+            //    if (!auditSuccess)
+            //    {
+            //        //TODO: Audit false thì alert ra đâu đó
+            //    }
+            //}
         }
 
         public static List<RecordSyncError> GetListRecordSyncError(string configDB)
@@ -736,6 +886,23 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             return data;
         }
 
+        public static BatchRecordProcessorEntity BuildRecordLogBatchData(List<Record> listRecord, string consumer, int errorLevel, string errorDetail = null, SyncErrorExtraData syncErrorExtraData = null)
+        {
+            BatchRecordProcessorEntity data = new BatchRecordProcessorEntity()
+            {
+                Record = listRecord,
+                Consumer = consumer,
+                ErrorLevel = errorLevel,
+                ErrorDetail = errorDetail,
+                ErrorTime = DateTime.Now
+            };
+            if (syncErrorExtraData != null)
+            {
+                data.ExtraData = syncErrorExtraData;
+            }
+            return data;
+        }
+
         public static void SaveSyncDataError(RecordProcessorEntity recError, string configDB)
         {
             using (var _connection = new MySqlConnection(configDB))
@@ -753,6 +920,55 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     dynamicParameters.Add("SubSequenceNumber", recError.Record.SubSequenceNumber);
                     dynamicParameters.Add("PartitionKey", recError.Record.PartitionKey);
                     dynamicParameters.Add("ApproximateArrivalTimestamp", recError.Record.ApproximateArrivalTimestamp);
+                    dynamicParameters.Add("ErrorDetail", recError.ErrorDetail);
+                    dynamicParameters.Add("ErrorLevel", recError.ErrorLevel);
+
+                    if (recError.ExtraData == null)
+                    {
+                        recError.ExtraData = new SyncErrorExtraData();
+                    }
+                    dynamicParameters.Add("ExtraData", JsonConvert.SerializeObject(recError.ExtraData));
+
+                    _connection.Execute("Proc_SaveSyncDataError", dynamicParameters, commandType: CommandType.StoredProcedure);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Exception: " + ex.Message);
+                    throw;
+                }
+                finally
+                {
+                    if (_connection != null && _connection.State != ConnectionState.Closed)
+                    {
+                        _connection.Close();
+                    }
+                    _connection.Dispose();
+                }
+            }
+        }
+
+        public static void SaveBatchSyncDataError(BatchRecordProcessorEntity recError, string configDB)
+        {
+            StringBuilder rawBatchData = new StringBuilder();
+            foreach (var item in recError.Record)
+            {
+                rawBatchData.Append($"{item.Data};");
+            }
+            using (var _connection = new MySqlConnection(configDB))
+            {
+
+                if (_connection.State == ConnectionState.Closed)
+                    _connection.Open();
+
+                try
+                {
+                    DynamicParameters dynamicParameters = new DynamicParameters();
+                    dynamicParameters.Add("Consumer", recError.Consumer);
+                    dynamicParameters.Add("RecordData", rawBatchData.ToString());
+                    dynamicParameters.Add("SequenceNumber", recError.Record[0].SequenceNumber);
+                    dynamicParameters.Add("SubSequenceNumber", recError.Record[0].SubSequenceNumber);
+                    dynamicParameters.Add("PartitionKey", recError.Record[0].PartitionKey);
+                    dynamicParameters.Add("ApproximateArrivalTimestamp", recError.Record[0].ApproximateArrivalTimestamp);
                     dynamicParameters.Add("ErrorDetail", recError.ErrorDetail);
                     dynamicParameters.Add("ErrorLevel", recError.ErrorLevel);
 

@@ -15,5 +15,6 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public static int numRetries;
         public static bool logPlaintextData = false;
         public static bool useSecretsManager = true;
+        public static int delayRetryTimeMilisecond = 300000;
     }
 }

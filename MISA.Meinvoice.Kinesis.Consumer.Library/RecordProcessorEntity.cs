@@ -20,6 +20,23 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
         public DateTime ErrorTime { get; set; } = DateTime.Now;
     }
+    public class BatchRecordProcessorEntity
+    {
+        public int Id { get; set; }
+        public string Consumer { get; set; }
+
+        public List<Record> Record { get; set; }
+
+        public SyncErrorExtraData ExtraData { get; set; }
+
+        public string ErrorDetail { get; set; }
+
+        public int ErrorLevel { get; set; }
+
+        public DateTime ErrorTime { get; set; } = DateTime.Now;
+    }
+
+
     public class RecordSyncError
     {
         public string Id { get; set; }
@@ -53,6 +70,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public const string Company = "company";
         public const string Transaction = "transaction";
         public const string Pl01GTGT = "Pl01gtgt";
+        public const string Currency = "Currency";
     }
 
     public class SyncDataErrorLevel
@@ -62,6 +80,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public const int RecordException = 3;
         public const int StopConsumer = 4;
         public const int BatchInsertException = 5;
+        public const int BatchTransactionInsertException = 6;
     }
 
     public class KinesisStreamEvent

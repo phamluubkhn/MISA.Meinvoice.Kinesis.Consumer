@@ -5,10 +5,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="AWSSDK.Core" Version="3.7.12.2" />
     <PackageReference Include="AWSSDK.DynamoDBv2" Version="3.7.3.16" />
-    <PackageReference Include="AWSSDK.SecretsManager" Version="3.7.2.55" />
-    <PackageReference Include="AWSSDK.SecurityToken" Version="3.7.1.167" />
     <PackageReference Include="Dapper" Version="2.0.123" />
     <PackageReference Include="MySqlConnector" Version="2.1.8" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.1" />
