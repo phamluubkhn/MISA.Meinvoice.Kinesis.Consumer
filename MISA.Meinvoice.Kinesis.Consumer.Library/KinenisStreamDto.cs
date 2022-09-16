@@ -12,6 +12,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     public class STAGING_CUSTOMER
     {
         [KinesisDataField(KinesisDataFieldType.StringType)]
+        [JsonProperty(Required = Required.Always)]
         public string CUSTOMER_ID { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
@@ -43,6 +44,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         [KinesisDataField(KinesisDataFieldType.StringType)]
         public string ACCOUNT_NUMBER { get; set; }
 
+        [JsonProperty(Required = Required.Always)]
         public string CUSTOMER_CODE { get; set; }
         //public DateTime? DS_PARTITION_DATE { get; set; }
 
@@ -61,6 +63,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     public class COMPANY
     {
         [KinesisDataField(KinesisDataFieldType.StringType)]
+        [JsonProperty(Required = Required.Always)]
         public string COMPANY_CODE { get; set; }
 
         //public DateTime? DS_PARTITION_DATE { get; set; }
@@ -104,6 +107,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     public class TRANSACTION_DATA
     {
         [KinesisDataField(KinesisDataFieldType.StringType)]
+        [JsonProperty(Required = Required.Always)]
         public string ENTRY_ID { get; set; }
 
         [KinesisDataField(KinesisDataFieldType.StringType)]
@@ -221,6 +225,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         /// <summary>
         /// Số bút toán
         /// </summary>
+        [JsonProperty(Required = Required.Always)]
         public string contract_number { get; set; }
 
         //COMPANY Mã chi nhánh VARCHAR2(255 BYTE)
@@ -323,6 +328,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
 
     public class CURRENCY
     {
+        [JsonProperty(Required = Required.Always)]
         public string currency_code { get; set; }
         public string curr_no { get; set; }
         public decimal? sell_rate { get; set; }

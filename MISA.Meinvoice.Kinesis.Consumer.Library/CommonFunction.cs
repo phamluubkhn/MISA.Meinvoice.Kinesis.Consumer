@@ -28,7 +28,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             }
             catch (Exception e)
             {
-                Console.Error.WriteLine(e.Message);
+                Console.Error.WriteLine("GetMysqlConnectionString Error:" +e.Message);
             }
             return mysqlConn;
         }

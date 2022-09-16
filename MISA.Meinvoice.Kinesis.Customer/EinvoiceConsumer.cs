@@ -78,12 +78,11 @@ namespace MISA.Meinvoice.Kinesis
             totalRecord += input.Records.Count;
             Console.Error.WriteLine("ProcessRecords Start v5 time" + DateTime.Now);
             Console.Error.WriteLine("NextCheckpointTime time" + _nextCheckpointTime);
-            Console.Error.WriteLine("Total record: " + totalRecord);
             string errorCode = "";
             int positionError = -1;
             // Process records and perform all exception handling.
             ProcessRecords(input.Records, ref errorCode, ref positionError);
-            Console.Error.WriteLine("ProcessRecords End v5 time" + DateTime.Now);
+            Console.Error.WriteLine("ProcessRecords End v6 time" + DateTime.Now);
             // Checkpoint once every checkpoint interval.
             if (DateTime.UtcNow >= _nextCheckpointTime)
             {
@@ -126,59 +125,34 @@ namespace MISA.Meinvoice.Kinesis
         /// <param name="records">The records to be processed.</param>
         private void ProcessRecords(List<Record> records, ref string errorCode, ref int positionError)
         {
-            //Kiểm tra kết nối DB
-            if (MysqlProvider.CheckHealth(configDB))
+            bool isBatchInsertSuccess = true;
+            //Thằng này chỉ insert batch
+            if (applicationName == KCLApplication.Transaction)
             {
-                bool isBatchInsertSuccess = true;
-                //Thằng này chỉ insert batch
-                if (applicationName == KCLApplication.Transaction )
+                bool isApplyRetry = true;
+                int retryNumber = 0;
+                while (isApplyRetry)
                 {
-                    bool isApplyRetry = true;
-                    int retryNumber = 0;
-                    while (isApplyRetry)
+                    isApplyRetry = MysqlProvider.SyncBatchTransactionData(records, configDB, retryNumber);
+                    if (isApplyRetry)
                     {
-                        isApplyRetry = MysqlProvider.SyncBatchTransactionData(records, configDB);
-                        if (isApplyRetry)
-                        {
-                            retryNumber++;
-                            Console.Error.WriteLine($"Retry number {retryNumber}");
-                            Thread.Sleep(delayRetryTimeMilisecond);
-                        }
+                        retryNumber++;
+                        Console.Error.WriteLine($"Execute SyncBatchTransactionData Timeout :Retry number {retryNumber}");
+                        Thread.Sleep(delayRetryTimeMilisecond);
                     }
                 }
-                else if (applicationName == KCLApplication.Pl01GTGT)
-                {
-                    isBatchInsertSuccess = MysqlProvider.SyncBatchPlgtgtData(records, configDB);
-                }
-                else if (applicationName == KCLApplication.CustomerBankAccount)
-                {
-                    isBatchInsertSuccess = MysqlProvider.SyncBatchBankData(records, configDB);
-                }
-                if (!isBatchInsertSuccess || (applicationName == KCLApplication.Company || applicationName == KCLApplication.Customer || applicationName == KCLApplication.Currency))
-                {
-                    MysqlProvider.SyncData(records, configDB, applicationName, maxErrorCountToShutDown, this._kinesisShardId, ref errorCode, ref positionError);
-                }
-                //Kiếm tra check lỗi quá số lần liên tiếp => Shutdown
-                //int errorCount = 0;
-                //foreach (Record rec in records)
-                //{
-                //    if (errorCount < maxErrorCountToShutDown)
-                //    {
-                //        MysqlProvider.SyncData(rec, configDB, applicationName, ref errorCount);
-                //    }
-                //    else
-                //    {
-                //        RecordProcessorEntity recordProcessorEntity = MysqlProvider.BuildRecordLogData(rec, applicationName, SyncDataErrorLevel.StopConsumer, $"{applicationName} Reach Max Error Count To ShutDown");
-                //        MysqlProvider.SaveSyncDataError(recordProcessorEntity, configDB);
-                //        throw new Exception($"{applicationName} Reach Max Error Count To ShutDown");
-                //    }
-                //}
             }
-            else
+            else if (applicationName == KCLApplication.Pl01GTGT)
             {
-                //vào đây là worker stop
-                Console.Error.WriteLine($"Connect to DB {configDB} fails");
-                throw new Exception($"Connect to DB {configDB} fails");
+                isBatchInsertSuccess = MysqlProvider.SyncBatchPlgtgtData(records, configDB);
+            }
+            else if (applicationName == KCLApplication.CustomerBankAccount)
+            {
+                isBatchInsertSuccess = MysqlProvider.SyncBatchBankData(records, configDB);
+            }
+            if (!isBatchInsertSuccess || (applicationName == KCLApplication.Company || applicationName == KCLApplication.Customer || applicationName == KCLApplication.Currency))
+            {
+                MysqlProvider.SyncData(records, configDB, applicationName, maxErrorCountToShutDown, this._kinesisShardId, ref errorCode, ref positionError);
             }
         }
 
@@ -251,16 +225,31 @@ namespace MISA.Meinvoice.Kinesis
                 }
                 if (ConsumerConfig.useSecretsManager)
                 {
-                    ConsumerConfig.mysqlDbConfig = CommonFunction.GetMysqlConnectionString(Config.GetSection("ApiUrl").Value, Config.GetSection("MysqlDB").Value);
-                    Console.Error.WriteLine($"mysqlDbConfig result {ConsumerConfig.mysqlDbConfig}");
+                    string rawConfig = null;
+                    Console.Error.WriteLine($"Config ApiUrl: {Config.GetSection("ApiUrl").Value}");
+                    Console.Error.WriteLine($"Config MysqlDB: {Config.GetSection("MysqlDB").Value}");
+                    while (string.IsNullOrEmpty(rawConfig))
+                    {
+                        rawConfig = CommonFunction.GetMysqlConnectionString(Config.GetSection("ApiUrl").Value, Config.GetSection("MysqlDB").Value);
+                        if (string.IsNullOrEmpty(rawConfig))
+                        {
+                            Thread.Sleep(ConsumerConfig.delayRetryTimeMilisecond);
+                        }
+                    }
+
+                    ConsumerConfig.mysqlDbConfig = rawConfig;
+                    Console.Error.WriteLine($"mysqlDbConfig result {rawConfig}");
                     bool pingStatus = MysqlProvider.CheckHealth(ConsumerConfig.mysqlDbConfig);
-                    Console.Error.WriteLine($"Check SecretsManager result {ConsumerConfig.mysqlDbConfig}-Ping status: {pingStatus}");
+                    Console.Error.WriteLine($"Check SecretsManager result {rawConfig}-Ping status: {pingStatus}");
                 }
                 else
                 {
                     ConsumerConfig.mysqlDbConfig = Config.GetSection("MysqlDB").Value;
                 }
                 KclProcess.Create(new EinvoiceRecordProcessor()).Run();
+
+
+
             }
             catch (Exception e)
             {

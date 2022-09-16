@@ -6,10 +6,12 @@ using Newtonsoft.Json;
 using System;
 using System.Collections.Generic;
 using System.Data;
+using System.Diagnostics;
 using System.Reflection;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using System.Threading.Tasks;
 
 namespace MISA.Meinvoice.Kinesis.Consumer.Library
 {
@@ -17,30 +19,32 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
     {
         public static bool CheckHealth(string connectionString)
         {
-            return true;
-            //bool result = false;
-            //Console.Error.WriteLine("CheckHealth mysql start");
-            //using (var connection = new MySqlConnection(connectionString))
-            //{
-            //    try
-            //    {
-            //        if (connection.State == ConnectionState.Closed)
-            //            connection.Open();
-            //        result = connection.Ping();
-            //    }
-            //    catch (Exception ex)
-            //    {
-            //        Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
-            //        return false;
-            //    }
-            //    finally
-            //    {
-            //        connection.Dispose();
-            //        connection.Close();
-            //    }
-            //}
-            
-            //return result;
+            bool result = false;
+            Console.Error.WriteLine("CheckHealth mysql start");
+            using (var connection = new MySqlConnection(connectionString))
+            {
+                try
+                {
+                    if (connection.State == ConnectionState.Closed)
+                        connection.Open();
+                    result = connection.Ping();
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine("CheckHealth mysql ex" + ex.Message);
+                    return false;
+                }
+                finally
+                {
+                    if (connection != null && connection.State != ConnectionState.Closed)
+                    {
+                        connection.Close();
+                    }
+                    connection.Dispose();
+                }
+            }
+
+            return result;
         }
 
         public static void SyncData(Record rec, string configDB, string application, ref int errorCount)
@@ -261,6 +265,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
                 {
+                    Console.WriteLine("Datalake EOF data: " + recordData);
                     ProcessEndOfFileMessage(recordData, configDB, application);
                 }
                 else
@@ -279,7 +284,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             return result;
         }
 
-        public static bool SyncBatchTransactionData(List<Record> rec, string configDB)
+        public static bool SyncBatchTransactionData(List<Record> rec, string configDB, int retryNumber)
         {
             bool applyRetry = false;
             StringBuilder stringBuilder = new StringBuilder();
@@ -301,20 +306,24 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 stringBuilder.Append(";");
 
                 string cmdExecuteTransdata = stringBuilder.ToString();
-                string cmdExecute = stringBuilder.ToString();
                 mConnection.Open();
-                using MySqlTransaction transaction = mConnection.BeginTransaction();
                 try
                 {
-                    mConnection.Execute(cmdExecuteTransdata, transaction: transaction, commandType: CommandType.Text);
-                    string cmdExecuteTransdataOrg = cmdExecuteTransdata.Replace("trans_data", "trans_data_currentdate");
-                    mConnection.Execute(cmdExecuteTransdataOrg, transaction: transaction, commandType: CommandType.Text);
-                    transaction.Commit();
+                    string cmdExecuteTransdataCurrentDate = cmdExecuteTransdata.Replace("trans_data", "trans_data_currentdate");
+                    cmdExecuteTransdata = cmdExecuteTransdata + cmdExecuteTransdataCurrentDate;
+                    int rowInserted = mConnection.Execute(cmdExecuteTransdata, commandType: CommandType.Text);
+                    //if (rowInserted > 0)
+                    //{
+
+                    //    Task<int> processExecute = mConnection.ExecuteAsync(cmdExecuteTransdataCurrentDate, commandType: CommandType.Text);
+                    //    int processExecuteResult = processExecute.Result;
+                    //    Console.WriteLine("processExecuteResult: " + processExecuteResult);
+                    //}
                 }
                 catch (MySqlException ex)
                 {
                     //Kiểm tra nếu là lỗi timeout thì retry đến được thì thôi
-                    if (ex.Message.Contains("The Command Timeout", StringComparison.InvariantCulture))
+                    if (ex.Message.Contains("timeout", StringComparison.InvariantCulture))
                     {
                         applyRetry = true;
                     }
@@ -323,12 +332,14 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 {
                     BatchRecordProcessorEntity recordProcessorEntity = BuildRecordLogBatchData(rec, KCLApplication.Transaction, SyncDataErrorLevel.BatchTransactionInsertException, e.Message);
                     SaveBatchSyncDataError(recordProcessorEntity, configDB);
-                    transaction.Rollback();
                 }
                 finally
                 {
+                    if (mConnection != null && mConnection.State != ConnectionState.Closed)
+                    {
+                        mConnection.Close();
+                    }
                     mConnection.Dispose();
-                    mConnection.Close();
                 }
             }
             return applyRetry;
@@ -373,6 +384,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
                 {
+                    Console.WriteLine("Datalake EOF data: " + recordData);
                     ProcessEndOfFileMessage(recordData, configDB, application);
                 }
                 else
@@ -416,9 +428,9 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 try
                 {
                     mConnection.Execute(cmdExecute, transaction: transaction, commandType: CommandType.Text);
-                    string cmdExecuteDataTemp = cmdExecuteTemp.Replace("pl01gtgt", "pl01gtgt_temp");
-                    cmdExecuteDataTemp = cmdExecuteDataTemp.Replace("as a ON DUPLICATE KEY UPDATE TRANS_NO = a.TRANS_NO, COMPANY = a.COMPANY, PL_CATEGORY = a.PL_CATEGORY, BOOKING_DATE = a.BOOKING_DATE, AMOUNT = a.AMOUNT, DESCRIPTION = a.DESCRIPTION, TYPE_CODE = a.TYPE_CODE, PURPOSE = a.PURPOSE,PRODCAT = a.PRODCAT,CURRENCY = a.CURRENCY,AMOUNT_FCY= a.AMOUNT_FCY,TRANSACTION_CODE = a.TRANSACTION_CODE,SYSTEM_ID = a.SYSTEM_ID,BUYER_CODE = a.BUYER_CODE,VALUE_DATE = a.VALUE_DATE,REVERSAL_MARKER = a.REVERSAL_MARKER,COMPANY_CODE = a.COMPANY_CODE,SEQUENCE_NUMBER = a.SEQUENCE_NUMBER,MODIFY_DATE = NOW();", ";");
-                    mConnection.Execute(cmdExecuteDataTemp, transaction: transaction, commandType: CommandType.Text);
+                    //string cmdExecuteDataTemp = cmdExecuteTemp.Replace("pl01gtgt", "pl01gtgt_temp");
+                    //cmdExecuteDataTemp = cmdExecuteDataTemp.Replace("as a ON DUPLICATE KEY UPDATE TRANS_NO = a.TRANS_NO, COMPANY = a.COMPANY, PL_CATEGORY = a.PL_CATEGORY, BOOKING_DATE = a.BOOKING_DATE, AMOUNT = a.AMOUNT, DESCRIPTION = a.DESCRIPTION, TYPE_CODE = a.TYPE_CODE, PURPOSE = a.PURPOSE,PRODCAT = a.PRODCAT,CURRENCY = a.CURRENCY,AMOUNT_FCY= a.AMOUNT_FCY,TRANSACTION_CODE = a.TRANSACTION_CODE,SYSTEM_ID = a.SYSTEM_ID,BUYER_CODE = a.BUYER_CODE,VALUE_DATE = a.VALUE_DATE,REVERSAL_MARKER = a.REVERSAL_MARKER,COMPANY_CODE = a.COMPANY_CODE,SEQUENCE_NUMBER = a.SEQUENCE_NUMBER,MODIFY_DATE = NOW();", ";");
+                    //mConnection.Execute(cmdExecuteDataTemp, transaction: transaction, commandType: CommandType.Text);
                     transaction.Commit();
                 }
                 catch (Exception e)
@@ -430,8 +442,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 finally
                 {
+                    if (mConnection != null && mConnection.State != ConnectionState.Closed)
+                    {
+                        mConnection.Close();
+                    }
                     mConnection.Dispose();
-                    mConnection.Close();
                 }
             }
             return result;
@@ -478,8 +493,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 finally
                 {
-                    mConnection.Dispose();
-                    mConnection.Close();
+                    if (mConnection != null && mConnection.State != ConnectionState.Closed)
+                    {
+                        mConnection.Close();
+                    }
+                    mConnection.Dispose();;
                 }
             }
             return result;
@@ -509,6 +527,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
                 {
+                    Console.WriteLine("Datalake EOF data: " + recordData);
                     ProcessEndOfFileMessage(recordData, configDB, application);
                 }
                 else
@@ -685,55 +704,41 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         break;
                     case KCLApplication.Pl01GTGT:
                         Pl01gtgt pl01Gtgt = JsonConvert.DeserializeObject<Pl01gtgt>(recordData);
-                        if (pl01Gtgt != null)
+                        bool reversalMarker = true;
+                        if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
                         {
-                            bool reversalMarker = true;
-                            if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
-                            {
-                                reversalMarker = false;
-                            }
-
-                            dynamicParameters.Add("TRANS_NO", pl01Gtgt.contract_number);
-                            dynamicParameters.Add("COMPANY", pl01Gtgt.COMPANY);
-                            dynamicParameters.Add("PL_CATEGORY", pl01Gtgt.pl_category);
-                            dynamicParameters.Add("BOOKING_DATE", pl01Gtgt.booking_date);
-                            dynamicParameters.Add("AMOUNT", pl01Gtgt.amount);
-                            dynamicParameters.Add("DESCRIPTION", pl01Gtgt.description);
-                            dynamicParameters.Add("TYPE_CODE", pl01Gtgt.TYPE_CODE);
-                            dynamicParameters.Add("PURPOSE", pl01Gtgt.PURPOSE);
-                            dynamicParameters.Add("PRODCAT", pl01Gtgt.product_category);
-                            dynamicParameters.Add("CURRENCY", pl01Gtgt.currency);
-                            dynamicParameters.Add("AMOUNT_FCY", pl01Gtgt.amount_foreign_currency);
-                            dynamicParameters.Add("TRANSACTION_CODE", pl01Gtgt.TRANSACTION_CODE);
-                            dynamicParameters.Add("SYSTEM_ID", pl01Gtgt.SYSTEM_ID);
-                            dynamicParameters.Add("BUYER_CODE", pl01Gtgt.customer_code);
-                            dynamicParameters.Add("SOURCE_ID", pl01Gtgt.SOURCE_ID);
-                            dynamicParameters.Add("VALUE_DATE", pl01Gtgt.VALUE_DATE);
-                            dynamicParameters.Add("REVERSAL_MARKER", reversalMarker);
-                            dynamicParameters.Add("COMPANY_CODE", pl01Gtgt.COMPANY_CODE);
-                            dynamicParameters.Add("SequenceNumber", sequenceNumber);
-
-                            procedureName = "Proc_SyncPl01GtgtData";
+                            reversalMarker = false;
                         }
-                        else
-                        {
-                            throw new Exception("Deserialize pl01Gtgt Fails");
-                        }
+
+                        dynamicParameters.Add("TRANS_NO", pl01Gtgt.contract_number);
+                        dynamicParameters.Add("COMPANY", pl01Gtgt.COMPANY);
+                        dynamicParameters.Add("PL_CATEGORY", pl01Gtgt.pl_category);
+                        dynamicParameters.Add("BOOKING_DATE", pl01Gtgt.booking_date);
+                        dynamicParameters.Add("AMOUNT", pl01Gtgt.amount);
+                        dynamicParameters.Add("DESCRIPTION", pl01Gtgt.description);
+                        dynamicParameters.Add("TYPE_CODE", pl01Gtgt.TYPE_CODE);
+                        dynamicParameters.Add("PURPOSE", pl01Gtgt.PURPOSE);
+                        dynamicParameters.Add("PRODCAT", pl01Gtgt.product_category);
+                        dynamicParameters.Add("CURRENCY", pl01Gtgt.currency);
+                        dynamicParameters.Add("AMOUNT_FCY", pl01Gtgt.amount_foreign_currency);
+                        dynamicParameters.Add("TRANSACTION_CODE", pl01Gtgt.TRANSACTION_CODE);
+                        dynamicParameters.Add("SYSTEM_ID", pl01Gtgt.SYSTEM_ID);
+                        dynamicParameters.Add("BUYER_CODE", pl01Gtgt.customer_code);
+                        dynamicParameters.Add("SOURCE_ID", pl01Gtgt.SOURCE_ID);
+                        dynamicParameters.Add("VALUE_DATE", pl01Gtgt.VALUE_DATE);
+                        dynamicParameters.Add("REVERSAL_MARKER", reversalMarker);
+                        dynamicParameters.Add("COMPANY_CODE", pl01Gtgt.COMPANY_CODE);
+                        dynamicParameters.Add("SequenceNumber", sequenceNumber);
+
+                        procedureName = "Proc_SyncPl01GtgtData";
                         break;
                     case KCLApplication.Currency:
                         CURRENCY currency = JsonConvert.DeserializeObject<CURRENCY>(recordData);
-                        if (currency != null)
-                        {
-                            dynamicParameters.Add("CurrencyCode ", currency.currency_code);
-                            dynamicParameters.Add("CurrNo", currency.curr_no);
-                            dynamicParameters.Add("SellRate", currency.sell_rate);
-                            dynamicParameters.Add("ProcessDate", currency.process_date);
-                            procedureName = "Proc_SyncExchangeRateData";
-                        }
-                        else
-                        {
-                            throw new Exception("Deserialize CURRENCY Fails");
-                        }
+                        dynamicParameters.Add("CurrencyCode ", currency.currency_code);
+                        dynamicParameters.Add("CurrNo", currency.curr_no);
+                        dynamicParameters.Add("SellRate", currency.sell_rate);
+                        dynamicParameters.Add("ProcessDate", currency.process_date);
+                        procedureName = "Proc_SyncExchangeRateData";
                         break;
                     default:
                         break;
@@ -744,6 +749,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
                 {
+                    Console.WriteLine("Datalake EOF data: " + recordData);
                     ProcessEndOfFileMessage(recordData, configDB, application);
                 }
                 else
