@@ -218,6 +218,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             try
             {
                 TRANSACTION_DATA transaction = JsonConvert.DeserializeObject<TRANSACTION_DATA>(recordData);
+                if (string.IsNullOrEmpty(transaction.ENTRY_ID))
+                {
+                    throw new Exception("EndOfFileMessage");
+                }
                 result = string.Format("(UUID(),{0},{1},{2},{3},{4},{5},{6},{7},{8},{9},{10},{11},{12},{13},{14},{15},{16},{17},{18},{19},{20},{21},{22},{23},{24},{25},{26},{27},{28},{29},{30},{31},{32},{33}, now())",
                     transaction.ENTRY_ID == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ENTRY_ID)}'",
                     transaction.ENTRY_TYPE == null ? "NULL" : $"'{MySqlHelper.EscapeString(transaction.ENTRY_TYPE)}'",
@@ -260,7 +264,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 rowsCheckDuplicate.Add(rowCheckDuplicate);
 
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (Exception e)
             {
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
@@ -270,16 +274,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 else
                 {
-                    throw;
+                    Console.WriteLine("Exception: " + e.Message);
+                    result = "";
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
                 }
-            }
-            catch (Exception e)
-            {
-
-                Console.WriteLine("Exception: " + e.Message);
-                result = "";
-                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
-                SaveSyncDataError(recordProcessorEntity, configDB);
             }
             return result;
         }
@@ -355,6 +354,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             try
             {
                 Pl01gtgt pl01Gtgt = JsonConvert.DeserializeObject<Pl01gtgt>(recordData);
+                if (string.IsNullOrEmpty(pl01Gtgt.contract_number))
+                {
+                    throw new Exception("EndOfFileMessage");
+                }
                 bool reversalMarker = true;
                 if (string.IsNullOrEmpty(pl01Gtgt.REVERSAL_MARKER))
                 {
@@ -382,9 +385,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     MySqlHelper.EscapeString(record.SequenceNumber)
                     );         
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (Exception e)
             {
-                //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
                 {
                     Console.WriteLine("Datalake EOF data: " + recordData);
@@ -392,15 +394,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 else
                 {
-                    throw;
+                    Console.WriteLine("Exception: " + e.Message);
+                    result = "";
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
                 }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Exception: " + e.Message);
-                result = "";
-                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
-                SaveSyncDataError(recordProcessorEntity, configDB);
             }
             return result;
         }
@@ -513,6 +511,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             try
             {
                 CUSTOMER_BANK_ACCOUNT bank = JsonConvert.DeserializeObject<CUSTOMER_BANK_ACCOUNT>(recordData);
+                if (string.IsNullOrEmpty(bank.CUSTOMER_CODE))
+                {
+                    throw new Exception("EndOfFileMessage");
+                }
                 result = string.Format("({0},{1},{2},{3},{4},{5},{6}, now(), {7})",
                     $"'{Guid.NewGuid()}'",
                     bank.CUSTOMER_CODE == null ? "NULL" : $"'{MySqlHelper.EscapeString(bank.CUSTOMER_CODE)}'",
@@ -523,7 +525,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     bank.STATUS.ToString(),
                     bank.DS_PARTITION_DATE.HasValue ? $"'{bank.DS_PARTITION_DATE.Value.ToString("yyyy-MM-dd HH:mm:ss")}'" : "NULL"); 
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (Exception e)
             {
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
@@ -533,15 +535,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 }
                 else
                 {
-                    throw;
+                    Console.WriteLine("Exception: " + e.Message);
+                    result = "";
+                    RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
+                    SaveSyncDataError(recordProcessorEntity, configDB);
                 }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Exception: " + e.Message);
-                result = "";
-                RecordProcessorEntity recordProcessorEntity = BuildRecordLogData(record, application, SyncDataErrorLevel.RecordException, e.Message);
-                SaveSyncDataError(recordProcessorEntity, configDB);
             }
             return result;
         }
@@ -646,6 +644,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         STAGING_CUSTOMER customer = JsonConvert.DeserializeObject<STAGING_CUSTOMER>(recordData);
                         if (customer != null)
                         {
+                            if (string.IsNullOrEmpty(customer.CUSTOMER_ID))
+                            {
+                                throw new Exception("EndOfFileMessage");
+                            }
                             dynamicParameters.Add("CustomerID", customer.CUSTOMER_ID);
                             dynamicParameters.Add("CustomerAddress", customer.ADDRESS);
                             dynamicParameters.Add("CustomerEmail", customer.EMAIL);
@@ -665,6 +667,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         CUSTOMER_BANK_ACCOUNT customerBankAccount = JsonConvert.DeserializeObject<CUSTOMER_BANK_ACCOUNT>(recordData);
                         if (customerBankAccount != null)
                         {
+                            if (string.IsNullOrEmpty(customerBankAccount.CUSTOMER_CODE))
+                            {
+                                throw new Exception("EndOfFileMessage");
+                            }
                             dynamicParameters.Add("CustomerID", customerBankAccount.CUSTOMER_CODE);
                             dynamicParameters.Add("AccountNumber", customerBankAccount.ACCOUNT_NUMBER);
                             dynamicParameters.Add("CloseDate", customerBankAccount.ACCOUNT_CLOSED_DATE);
@@ -684,6 +690,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         COMPANY company = JsonConvert.DeserializeObject<COMPANY>(recordData);
                         if (company != null)
                         {
+                            if (string.IsNullOrEmpty(company.COMPANY_CODE))
+                            {
+                                throw new Exception("EndOfFileMessage");
+                            }
                             dynamicParameters.Add("CompanyCode", company.COMPANY_CODE);
                             dynamicParameters.Add("CompanyName", company.NAME);
                             dynamicParameters.Add("Status", company.STATUS);
@@ -700,6 +710,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         TRANSACTION_DATA transaction = JsonConvert.DeserializeObject<TRANSACTION_DATA>(recordData);
                         if (transaction != null)
                         {
+                            if (string.IsNullOrEmpty(transaction.ENTRY_ID))
+                            {
+                                throw new Exception("EndOfFileMessage");
+                            }
                             dynamicParameters.Add("ENTRY_ID", transaction.ENTRY_ID);
                             dynamicParameters.Add("ENTRY_TYPE", transaction.ENTRY_TYPE);
                             dynamicParameters.Add("BUYER_CODE", transaction.BUYER_CODE);
@@ -749,7 +763,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         {
                             reversalMarker = false;
                         }
-
+                        if (string.IsNullOrEmpty(pl01Gtgt.contract_number))
+                        {
+                            throw new Exception("EndOfFileMessage");
+                        }
                         dynamicParameters.Add("TRANS_NO", pl01Gtgt.contract_number);
                         dynamicParameters.Add("COMPANY", pl01Gtgt.COMPANY);
                         dynamicParameters.Add("PL_CATEGORY", pl01Gtgt.pl_category);
@@ -774,6 +791,10 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         break;
                     case KCLApplication.Currency:
                         CURRENCY currency = JsonConvert.DeserializeObject<CURRENCY>(recordData);
+                        if (string.IsNullOrEmpty(currency.currency_code))
+                        {
+                            throw new Exception("EndOfFileMessage");
+                        }
                         dynamicParameters.Add("CurrencyCode ", currency.currency_code);
                         dynamicParameters.Add("CurrNo", currency.curr_no);
                         dynamicParameters.Add("SellRate", currency.sell_rate);
@@ -784,7 +805,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         break;
                 }
             }
-            catch (Newtonsoft.Json.JsonException ex)
+            catch (Exception)
             {
                 //Check End-of-file message
                 if (recordData.Contains("kinesis_stream_name"))
@@ -796,10 +817,6 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 {
                     throw;
                 }
-            }
-            catch (Exception)
-            {
-                throw;
             }
             return procedureName;
         }
