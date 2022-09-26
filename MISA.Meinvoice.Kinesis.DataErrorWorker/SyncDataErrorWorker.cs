@@ -19,8 +19,8 @@ namespace MISA.Meinvoice.Kinesis.DataErrorWorker
 
     public class DataErrorResyncProvider
     {
-        public static string dbConfig = "";
-        public static int processInterval = 10;
+        public static string dbConfig = DataErrorResyncProvider.dbConfig;
+        public static int processInterval = DataErrorResyncProvider.processInterval;
         public static void RunWorker()
         {
             Task t = new Task(() => { DoWork(dbConfig); });
@@ -38,13 +38,13 @@ namespace MISA.Meinvoice.Kinesis.DataErrorWorker
 
         static void ProcessResyncDataError(string dbConfig)
         {
-            List<RecordSyncError> recordSyncErrors = MysqlProvider.GetListRecordSyncError(dbConfig);
-            Console.Error.WriteLine("Get recordSyncErrors: " + recordSyncErrors.Count);
-            if (recordSyncErrors.Count > 0)
+            List<CommandSyncError> commandSyncErrors = MysqlProvider.GetListCommandSyncError(dbConfig);
+            Console.Error.WriteLine("Get recordSyncErrors: " + commandSyncErrors.Count);
+            if (commandSyncErrors.Count > 0)
             {
-                foreach (var item in recordSyncErrors)
+                foreach (var item in commandSyncErrors)
                 {
-                    MysqlProvider.ReSyncData(item.Id, item.RecordData, item.Consumer, dbConfig);
+                    MysqlProvider.RetryCommandSyncError(item, dbConfig);
                 }
             }
         }

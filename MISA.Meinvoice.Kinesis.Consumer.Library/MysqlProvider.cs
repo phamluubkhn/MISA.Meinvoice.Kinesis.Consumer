@@ -284,12 +284,11 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             return result;
         }
 
-        public static bool SyncBatchTransactionData(List<Record> rec, string configDB, int retryNumber)
+        public static void SyncBatchTransactionData(List<Record> rec, string configDB)
         {
-            bool applyRetry = false;
             StringBuilder stringBuilder = new StringBuilder();
             stringBuilder.Append("INSERT INTO trans_data VALUES ");
-
+            string cmdExecuteTransdata = "";
             using (MySqlConnection mConnection = new MySqlConnection(configDB))
             {
                 List<string> rows = new List<string>();
@@ -305,27 +304,32 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 stringBuilder.Append(string.Join(",", rows));
                 stringBuilder.Append(";");
 
-                string cmdExecuteTransdata = stringBuilder.ToString();
+                cmdExecuteTransdata = stringBuilder.ToString();
                 mConnection.Open();
                 try
                 {
                     string cmdExecuteTransdataCurrentDate = cmdExecuteTransdata.Replace("trans_data", "trans_data_currentdate");
                     cmdExecuteTransdata = cmdExecuteTransdata + cmdExecuteTransdataCurrentDate;
                     int rowInserted = mConnection.Execute(cmdExecuteTransdata, commandType: CommandType.Text);
-                    //if (rowInserted > 0)
+                    //if (DateTime.Now.Second%28 ==0)
                     //{
-
-                    //    Task<int> processExecute = mConnection.ExecuteAsync(cmdExecuteTransdataCurrentDate, commandType: CommandType.Text);
-                    //    int processExecuteResult = processExecute.Result;
-                    //    Console.WriteLine("processExecuteResult: " + processExecuteResult);
+                    //    BatchRecordProcessorEntity recordProcessorEntity = BuildRecordLogBatchData(rec, KCLApplication.Transaction, SyncDataErrorLevel.BatchTransactionInsertTimeout, "");
+                    //    SaveCommandSyncDataError(recordProcessorEntity, configDB, cmdExecuteTransdata);
                     //}
                 }
                 catch (MySqlException ex)
                 {
-                    //Kiểm tra nếu là lỗi timeout thì retry đến được thì thôi
+                    //Kiểm tra nếu là lỗi timeout thì lưu lại command lỗi
+                    
                     if (ex.Message.Contains("timeout", StringComparison.InvariantCulture))
                     {
-                        applyRetry = true;
+                        BatchRecordProcessorEntity recordProcessorEntity = BuildRecordLogBatchData(rec, KCLApplication.Transaction, SyncDataErrorLevel.BatchTransactionInsertTimeout, "");
+                        SaveCommandSyncDataError(recordProcessorEntity, configDB, cmdExecuteTransdata);
+                    }
+                    else
+                    {
+                        BatchRecordProcessorEntity recordProcessorEntity = BuildRecordLogBatchData(rec, KCLApplication.Transaction, SyncDataErrorLevel.BatchTransactionInsertException, ex.Message);
+                        SaveBatchSyncDataError(recordProcessorEntity, configDB);
                     }
                 }
                 catch (Exception e)
@@ -342,7 +346,6 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     mConnection.Dispose();
                 }
             }
-            return applyRetry;
         }
 
         private static string ProcessPlgtgtRecord(Record record, string configDB, string application)
@@ -412,7 +415,8 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 List<string> rows = new List<string>();
                 foreach (var item in rec)
                 {
-                    string rowText = ProcessPlgtgtRecord(item, configDB, KCLApplication.Transaction);
+                    string rowText = 
+                        ProcessPlgtgtRecord(item, configDB, KCLApplication.Pl01GTGT);
                     if (!string.IsNullOrEmpty(rowText))
                     {
                         rows.Add(rowText);
@@ -463,7 +467,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 List<string> rows = new List<string>();
                 foreach (var item in rec)
                 {
-                    string rowText = ProcessBankRecord(item, configDB, KCLApplication.Transaction);
+                    string rowText = ProcessBankRecord(item, configDB, KCLApplication.CustomerBankAccount);
                     if (!string.IsNullOrEmpty(rowText))
                     {
                         rows.Add(rowText);
@@ -479,9 +483,6 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                 try
                 {
                     mConnection.Execute(cmdExecute, transaction: transaction, commandType: CommandType.Text);
-                    string cmdExecuteDataTemp = cmdExecuteTemp.Replace("customerbankaccount", "customerbankaccount_temp");
-                    cmdExecuteDataTemp = cmdExecuteDataTemp.Replace("as a ON DUPLICATE KEY UPDATE CustomerID = a.CustomerID, CloseDate = a.CloseDate, Category = a.Category, Currency = a.Currency, Status = a.Status, DsPartitionDate = a.DsPartitionDate, ModifiedDate  = NOW();", ";");
-                    mConnection.Execute(cmdExecuteDataTemp, transaction: transaction, commandType: CommandType.Text);
                     transaction.Commit();
                 }
                 catch (Exception e)
@@ -582,6 +583,45 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                         }
                         _connection.Dispose();
                     }
+                }
+            }
+        }
+
+
+        /// <summary>
+        /// Retry command error/timeout
+        /// </summary>
+        /// <param name="commandSyncErrors"></param>
+        /// <param name="application"></param>
+        public static void RetryCommandSyncError(CommandSyncError commandSyncError, string configDB)
+        {
+            int rowInserted = 0;
+            using (MySqlConnection mConnection = new MySqlConnection(configDB))
+            {
+                mConnection.Open();
+                try
+                {
+                    rowInserted = mConnection.Execute(System.Text.Encoding.UTF8.GetString(commandSyncError.RecordData), commandType: CommandType.Text);
+                    
+                }
+                catch (Exception e)
+                {
+                    //Tạch thì thôi
+                }
+                finally
+                {
+                    // retry thành công thì xóa dữ liệu SyncDataError
+                    if (rowInserted > 0)
+                    {
+                        DynamicParameters dynamicParameters = new DynamicParameters();
+                        dynamicParameters.Add("Id", commandSyncError.Id);
+                        mConnection.Execute("Proc_SyncDataError_DeleteById", dynamicParameters, commandType: CommandType.StoredProcedure);
+                    }
+                    if (mConnection != null && mConnection.State != ConnectionState.Closed)
+                    {
+                        mConnection.Close();
+                    }
+                    mConnection.Dispose();
                 }
             }
         }
@@ -874,6 +914,28 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
             return recordSyncErrors;
         }
 
+        public static List<CommandSyncError> GetListCommandSyncError(string configDB)
+        {
+            List<CommandSyncError> recordSyncErrors = new List<CommandSyncError>();
+            try
+            {
+                using (var _connection = new MySqlConnection(configDB))
+                {
+
+                    if (_connection.State == ConnectionState.Closed)
+                        _connection.Open();
+
+                    recordSyncErrors = _connection.Query<CommandSyncError>("Proc_SyncDataError_GetListCommandRetry", null, commandType: CommandType.StoredProcedure).AsList();
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"Exececute proc  GetListRecordSyncError {ex.Message}");
+                //TODO: Log lỗi
+            }
+            return recordSyncErrors;
+        }
+
 
         public static RecordProcessorEntity BuildRecordLogData(Record rec, string consumer, int errorLevel, string errorDetail = null, SyncErrorExtraData syncErrorExtraData = null)
         {
@@ -971,6 +1033,51 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
                     DynamicParameters dynamicParameters = new DynamicParameters();
                     dynamicParameters.Add("Consumer", recError.Consumer);
                     dynamicParameters.Add("RecordData", rawBatchData.ToString());
+                    dynamicParameters.Add("SequenceNumber", recError.Record[0].SequenceNumber);
+                    dynamicParameters.Add("SubSequenceNumber", recError.Record[0].SubSequenceNumber);
+                    dynamicParameters.Add("PartitionKey", recError.Record[0].PartitionKey);
+                    dynamicParameters.Add("ApproximateArrivalTimestamp", recError.Record[0].ApproximateArrivalTimestamp);
+                    dynamicParameters.Add("ErrorDetail", recError.ErrorDetail);
+                    dynamicParameters.Add("ErrorLevel", recError.ErrorLevel);
+
+                    if (recError.ExtraData == null)
+                    {
+                        recError.ExtraData = new SyncErrorExtraData();
+                    }
+                    dynamicParameters.Add("ExtraData", JsonConvert.SerializeObject(recError.ExtraData));
+
+                    _connection.Execute("Proc_SaveSyncDataError", dynamicParameters, commandType: CommandType.StoredProcedure);
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Exception: " + ex.Message);
+                    throw;
+                }
+                finally
+                {
+                    if (_connection != null && _connection.State != ConnectionState.Closed)
+                    {
+                        _connection.Close();
+                    }
+                    _connection.Dispose();
+                }
+            }
+        }
+
+        public static void SaveCommandSyncDataError(BatchRecordProcessorEntity recError, string configDB, string commandSyncDataError)
+        {
+            
+            using (var _connection = new MySqlConnection(configDB))
+            {
+
+                if (_connection.State == ConnectionState.Closed)
+                    _connection.Open();
+
+                try
+                {
+                    DynamicParameters dynamicParameters = new DynamicParameters();
+                    dynamicParameters.Add("Consumer", recError.Consumer);
+                    dynamicParameters.Add("RecordData", commandSyncDataError);
                     dynamicParameters.Add("SequenceNumber", recError.Record[0].SequenceNumber);
                     dynamicParameters.Add("SubSequenceNumber", recError.Record[0].SubSequenceNumber);
                     dynamicParameters.Add("PartitionKey", recError.Record[0].PartitionKey);

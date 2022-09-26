@@ -45,6 +45,12 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public byte[] RecordData { get; set; }
     }
 
+    public class CommandSyncError
+    {
+        public string Id { get; set; }
+        public byte[] RecordData { get; set; }
+    }
+
 
     public class SyncErrorExtraData {
         public string SqlState { get; set; }
@@ -81,6 +87,7 @@ namespace MISA.Meinvoice.Kinesis.Consumer.Library
         public const int StopConsumer = 4;
         public const int BatchInsertException = 5;
         public const int BatchTransactionInsertException = 6;
+        public const int BatchTransactionInsertTimeout = 7;
     }
 
     public class KinesisStreamEvent

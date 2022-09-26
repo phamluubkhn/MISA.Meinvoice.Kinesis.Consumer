@@ -11,6 +11,7 @@ using MISA.Meinvoice.Kinesis.Consumer.Library;
 using Microsoft.Extensions.DependencyInjection;
 using Amazon.Runtime;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
 
 namespace MISA.Meinvoice.Kinesis
 {
@@ -18,7 +19,7 @@ namespace MISA.Meinvoice.Kinesis
     {
         private static string configDB = ConsumerConfig.mysqlDbConfig;
 
-        private static int delayRetryTimeMilisecond = ConsumerConfig.delayRetryTimeMilisecond;
+        private static int delayRetryTimeMilisecond = ConsumerConfig.delayRetryTimeMinute;
 
         private static string applicationName = ConsumerConfig.applicationName;
 
@@ -129,18 +130,7 @@ namespace MISA.Meinvoice.Kinesis
             //Thằng này chỉ insert batch
             if (applicationName == KCLApplication.Transaction)
             {
-                bool isApplyRetry = true;
-                int retryNumber = 0;
-                while (isApplyRetry)
-                {
-                    isApplyRetry = MysqlProvider.SyncBatchTransactionData(records, configDB, retryNumber);
-                    if (isApplyRetry)
-                    {
-                        retryNumber++;
-                        Console.Error.WriteLine($"Execute SyncBatchTransactionData Timeout :Retry number {retryNumber}");
-                        Thread.Sleep(delayRetryTimeMilisecond);
-                    }
-                }
+                MysqlProvider.SyncBatchTransactionData(records, configDB);
             }
             else if (applicationName == KCLApplication.Pl01GTGT)
             {
@@ -221,7 +211,11 @@ namespace MISA.Meinvoice.Kinesis
                 ConsumerConfig.useSecretsManager = bool.Parse(Config.GetSection("UseSecretsManager").Value);
                 if (Config.GetSection("DelayRetryTimeMilisecond") != null)
                 {
-                    ConsumerConfig.delayRetryTimeMilisecond = int.Parse(Config.GetSection("DelayRetryTimeMilisecond").Value);
+                    ConsumerConfig.delayRetryTimeMinute = int.Parse(Config.GetSection("DelayRetryTimeMilisecond").Value);
+                }
+                if (Config.GetSection("RunRetryCommandJob") != null)
+                {
+                    ConsumerConfig.runRetryCommandJob = bool.Parse(Config.GetSection("RunRetryCommandJob").Value);
                 }
                 if (ConsumerConfig.useSecretsManager)
                 {
@@ -233,7 +227,7 @@ namespace MISA.Meinvoice.Kinesis
                         rawConfig = CommonFunction.GetMysqlConnectionString(Config.GetSection("ApiUrl").Value, Config.GetSection("MysqlDB").Value);
                         if (string.IsNullOrEmpty(rawConfig))
                         {
-                            Thread.Sleep(ConsumerConfig.delayRetryTimeMilisecond);
+                            Thread.Sleep(ConsumerConfig.delayRetryTimeMinute);
                         }
                     }
 
@@ -246,15 +240,73 @@ namespace MISA.Meinvoice.Kinesis
                 {
                     ConsumerConfig.mysqlDbConfig = Config.GetSection("MysqlDB").Value;
                 }
-                KclProcess.Create(new EinvoiceRecordProcessor()).Run();
-
-
-
+                if (ConsumerConfig.runRetryCommandJob)
+                {
+                    var task1 = Task.Run(() => CreateHostBuilder(args).Build().Run());
+                    var task2 = Task.Run(() => KclProcess.Create(new EinvoiceRecordProcessor()).Run());
+                    Task.WaitAll(task1, task2);
+                }
+                else
+                {
+                    KclProcess.Create(new EinvoiceRecordProcessor()).Run();
+                }
             }
             catch (Exception e)
             {
                 Console.Error.WriteLine(e.Message);
             }
         }
-    }    
+
+        /// <summary>
+        /// Build worker đồng bộ dữ liệu lỗi
+        /// </summary>
+        /// <param name="args"></param>
+        /// <returns></returns>
+        public static IHostBuilder CreateHostBuilder(string[] args) =>
+            Host.CreateDefaultBuilder(args)
+            .ConfigureServices(services =>
+                   services.AddHostedService<SyncDataErrorWorker>());
+    }
+
+    public class SyncDataErrorWorker : BackgroundService
+    {
+        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        {
+            DataErrorResyncProvider.RunWorker();
+            await Task.Delay(1000, stoppingToken);
+        }
+    }
+
+    public class DataErrorResyncProvider
+    {
+        public static string dbConfig = ConsumerConfig.mysqlDbConfig;
+        public static int processInterval = ConsumerConfig.delayRetryTimeMinute;
+        public static void RunWorker()
+        {
+            Task t = new Task(() => { DoWork(dbConfig); });
+            t.Start();
+        }
+        private static void DoWork(string dbConfig)
+        {
+            ProcessResyncDataError(dbConfig);
+            DateTime now = DateTime.Now;
+            DateTime nextTime = now.AddMinutes(processInterval);
+            TimeSpan waithTime = nextTime - now;
+            Thread.Sleep((int)waithTime.TotalMilliseconds);
+            DoWork(dbConfig);
+        }
+
+        static void ProcessResyncDataError(string dbConfig)
+        {
+            List<CommandSyncError> commandSyncErrors = MysqlProvider.GetListCommandSyncError(dbConfig);
+            Console.Error.WriteLine("Get recordSyncErrors: " + commandSyncErrors.Count);
+            if (commandSyncErrors.Count > 0)
+            {
+                foreach (var item in commandSyncErrors)
+                {
+                    MysqlProvider.RetryCommandSyncError(item, dbConfig);
+                }
+            }
+        }
+    }
 }
